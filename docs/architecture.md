@@ -15,7 +15,16 @@ median of 4 runs. "photo" = first frame in a 60 fps capture that shows the pictu
 | current Lumen (Tauri + WebKit) | 81 ms | 447 ms | 469 ms | 263 MB | 269 MB |
 | `spikes/gtk3-viewer` (GTK3 + cairo) | 54 ms | **54 ms** | **104 ms** | **24 MB** | **95 MB** |
 | `spikes/egui-viewer` (wgpu + egui) | 71 ms | 71 ms | 129 ms | 116 MB | 155 MB |
+| **`egui-app` (rewrite in progress)** | 77 ms | **77 ms** | 242 ms | 118 MB | 140 MB |
 | Loupe 51.2 (GTK4 / libadwaita) | 146 ms | 212 ms | 339 ms | 113 MB | 137 MB |
+
+## Note on the egui numbers
+
+The headless session has no Vulkan device, so every wgpu run above used the GL backend on
+llvmpipe. 37 MB of libLLVM + 12 MB of libgallium + 8 MB of libnvidia-gpucomp are *software
+rasteriser* costs that a real GPU session does not pay; the egui app's own heap is ~30 MB
+(including the 390-glyph subset font and the uploaded texture). A GPU session should land
+well under Loupe's 113 MB while keeping the sub-100 ms time-to-photo.
 
 ## What the spikes show
 
