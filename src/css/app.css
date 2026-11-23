@@ -3888,3 +3888,10 @@ body.insp-anim #inspector {
 .swatch-toggle[hidden] {
   display: none !important;
 }
+
+
+/* Opening from the file manager: the splash disappears quickly so the photo
+   lands sooner (the chrome still fades in normally). */
+body.boot-fast #boot {
+  transition: none;
+}

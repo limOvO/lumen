@@ -167,7 +167,7 @@ async function decodeViaImageElement(blob) {
  * Decode a blob to an ImageBitmap. Returns `{ bitmap, decodedScale }` where
  * decodedScale = bitmap pixels / logical pixels (1 unless downsampled).
  */
-async function decodeBlob(blob, mime) {
+async function decodeBlob(blob, mime, pixelCap = MAX_PIXELS, fullArea = 0) {
   const isSvg = mime === 'image/svg+xml';
   // SVG 沒有 EXIF 方向，走 <img> + drawImage 最可靠（WebKit 的
   // createImageBitmap 對 SVG blob 支援不一致）。
@@ -176,6 +176,28 @@ async function decodeBlob(blob, mime) {
     return { bitmap, decodedScale: 1 };
   }
   let bitmap;
+
+  // Known source size + a smaller cap: decode once at the reduced size instead
+  // of decoding full then scaling (which costs a second full decode).
+  const cap0 = Math.max(1, Math.min(MAX_PIXELS, pixelCap || MAX_PIXELS));
+  if (fullArea > cap0) {
+    const targetW = Math.max(1, Math.round(Math.sqrt(cap0 / fullArea) * Math.sqrt(fullArea)));
+    try {
+      const small = await createImageBitmap(blob, {
+        imageOrientation: 'from-image',
+        resizeWidth: targetW,
+        resizeQuality: 'medium',
+      });
+      const scale = Math.sqrt((small.width * small.height) / fullArea);
+      if (small.width && small.height && scale > 0) {
+        return { bitmap: small, decodedScale: scale };
+      }
+      small.close?.();
+    } catch (err) {
+      /* fall through to the full decode below */
+    }
+  }
+
   try {
     // imageOrientation:'from-image' applies the EXIF rotation so width/height
     // are the displayed dimensions, not the sensor dimensions.
@@ -192,10 +214,11 @@ async function decodeBlob(blob, mime) {
   const fullW = bitmap.width;
   const fullH = bitmap.height;
   const area = fullW * fullH;
+  const cap = Math.max(1, Math.min(MAX_PIXELS, pixelCap || MAX_PIXELS));
 
-  if (area > MAX_PIXELS) {
+  if (area > cap) {
     bitmap.close?.();
-    const ratio = Math.sqrt(MAX_PIXELS / area);
+    const ratio = Math.sqrt(cap / area);
     const resizeWidth = Math.max(1, Math.round(fullW * ratio));
     try {
       const small = await createImageBitmap(blob, {
@@ -222,7 +245,7 @@ function describeDecodeError(name, mime) {
   return `無法解碼「${name}」，檔案可能已損毀或格式不受支援。`;
 }
 
-async function buildDoc({ bytes, name, path, meta }) {
+async function buildDoc({ bytes, name, path, meta, maxPixels }) {
   const sniffed = sniffMime(bytes);
   // 副檔名只在 magic bytes 認不出來時當後備（例如被裁掉開頭的檔案）。
   const extMime = MIME_BY_EXT[extOf(path || name)];
@@ -240,21 +263,22 @@ async function buildDoc({ bytes, name, path, meta }) {
   }
 
   const blob = new Blob([bytes], { type: mime });
-  // Start decoding while the shell is still reading EXIF/metadata.
-  const decodePromise = decodeBlob(blob, mime).catch((err) => {
-    throw new Error(describeDecodeError(name, mime));
-  });
+  // Metadata is only needed for the dimensions, which arrive in a few ms; having
+  // them up-front lets large images decode directly at the preview size.
+  resolvedMeta = (await metaPromise) || null;
+  const fullArea =
+    resolvedMeta && resolvedMeta.width > 0 && resolvedMeta.height > 0
+      ? resolvedMeta.width * resolvedMeta.height
+      : 0;
   let decoded;
   try {
-    [decoded, resolvedMeta] = await Promise.all([decodePromise, metaPromise]);
+    decoded = await decodeBlob(blob, mime, maxPixels, fullArea);
   } catch (err) {
     throw new Error(describeDecodeError(name, mime));
   }
-  resolvedMeta = resolvedMeta || null;
   const { bitmap, decodedScale } = decoded;
   const width = Math.max(1, Math.round(bitmap.width / (decodedScale || 1)));
   const height = Math.max(1, Math.round(bitmap.height / (decodedScale || 1)));
-  const objectUrl = URL.createObjectURL(blob);
   const exif = Array.isArray(resolvedMeta?.exif) ? resolvedMeta.exif : [];
 
   return {
@@ -268,8 +292,6 @@ async function buildDoc({ bytes, name, path, meta }) {
     format: resolvedMeta?.format || FORMAT_BY_MIME[mime] || mime.replace('image/', '').toUpperCase(),
     exif,
     bitmap,
-    blob,
-    objectUrl,
     mime,
     decodedScale: decodedScale || 1,
     hasAlpha: ALPHA_MIMES.has(mime),
@@ -279,11 +301,11 @@ async function buildDoc({ bytes, name, path, meta }) {
 let currentDoc = null;
 
 /** Load an image from disk (Tauri) and decode it. */
-export async function loadDocument(path) {
+export async function loadDocument(path, options = {}) {
   if (!path) throw new Error('沒有指定圖片路徑');
   const bytes = await readFileBytes(path);
   const name = baseName(path);
-  const doc = await buildDoc({ bytes, name, path });
+  const doc = await buildDoc({ bytes, name, path, maxPixels: options.maxPixels });
   if (currentDoc && currentDoc !== doc) disposeDoc(currentDoc);
   currentDoc = doc;
   return doc;
@@ -301,6 +323,28 @@ export async function loadFromBytes(bytes, name, path) {
 }
 
 /** Release the bitmap + object URL held by a document. Safe to call twice. */
+/**
+ * Re-decode the current document at full resolution (the viewer decodes at a
+ * preview-friendly size to keep memory low) and swap the bitmap in place.
+ */
+export async function ensureFullRes(doc) {
+  if (!doc || !doc.path) return doc;
+  if ((doc.decodedScale || 1) >= 0.999) return doc;
+  const bytes = await readFileBytes(doc.path);
+  const decoded = await decodeBlob(new Blob([bytes], { type: doc.mime }), doc.mime, Infinity);
+  const old = doc.bitmap;
+  doc.bitmap = decoded.bitmap;
+  doc.decodedScale = decoded.decodedScale || 1;
+  try {
+    old?.close?.();
+  } catch (err) {
+    /* already released */
+  }
+  doc.width = Math.max(1, Math.round(doc.bitmap.width / doc.decodedScale));
+  doc.height = Math.max(1, Math.round(doc.bitmap.height / doc.decodedScale));
+  return doc;
+}
+
 export function disposeDoc(doc) {
   if (!doc) return;
   try {
@@ -308,13 +352,8 @@ export function disposeDoc(doc) {
   } catch (err) {
     /* 已釋放 */
   }
-  try {
-    if (doc.objectUrl) URL.revokeObjectURL(doc.objectUrl);
-  } catch (err) {
-    /* 已釋放 */
-  }
   doc.bitmap = null;
-  doc.objectUrl = '';
+  doc.blob = null;
   if (currentDoc === doc) currentDoc = null;
 }
 

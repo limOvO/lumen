@@ -12,6 +12,7 @@ import {
 import * as loader from './core/loader.js';
 import * as viewport from './core/viewport.js';
 import { initI18n, tr } from './core/i18n.js';
+
 import * as annotate from './core/annotate.js';
 import * as exporter from './core/export.js';
 
@@ -510,7 +511,9 @@ export async function openPath(
   if (els.stage && !fadingInPreview) els.stage.classList.add('is-loading');
   try {
     const doc =
-      preloaded && preloaded.path === path ? preloaded : await loader.loadDocument(path);
+      preloaded && preloaded.path === path
+        ? preloaded
+        : await loader.loadDocument(path, { maxPixels: previewPixelCap() });
     if (state.doc && state.doc !== doc) loader.disposeDoc?.(state.doc);
     state.doc = doc;
     // Kick off the folder listing without blocking the first paint — the
@@ -607,9 +610,35 @@ function normalizeFormat(fmt, doc) {
   return 'png';
 }
 
+function previewPixelCap() {
+  const { w, h } = stageSize();
+  // Roughly 2x the viewport in each axis keeps zoomed-in previews sharp while
+  // avoiding a full-resolution bitmap for big photos.
+  return Math.max(3.5e6, Math.min(16e6, Math.round(w * h * 4)));
+}
+
+let upgrading = false;
+/** Swap in a full-resolution bitmap when the view needs more detail than the
+ *  preview-sized decode offers (zoom past it, entering the editor, exporting). */
+async function upgradeToFullRes() {
+  const doc = state.doc;
+  if (!doc || upgrading) return;
+  if ((doc.decodedScale || 1) >= 0.999) return;
+  upgrading = true;
+  try {
+    await loader.ensureFullRes(doc);
+    requestRender();
+  } catch (err) {
+    console.warn('[loader] full-res upgrade failed', err);
+  } finally {
+    upgrading = false;
+  }
+}
+
 async function buildExport(overrides = {}) {
   const doc = state.doc;
   if (!doc) throw new Error('沒有開啟的圖片');
+  await upgradeToFullRes();
   const out = { ...state.output, ...overrides };
   const format = normalizeFormat(out.format, doc);
   const flat = await exporter.flatten(doc, state.objects, {
@@ -869,6 +898,7 @@ export const actions = {
       if (!doc) return null;
       const out = { ...state.output, ...overrides };
       const format = normalizeFormat(out.format, doc);
+      await upgradeToFullRes();
       const res = await exporter.estimateSize(doc, state.objects, { ...out, format }, state.crop);
       return { ...res, format };
     } catch (err) {
@@ -882,6 +912,7 @@ export const actions = {
       return;
     }
     setPhaseState(phase);
+    if (phase === 'edit') upgradeToFullRes();
   },
   togglePhase() {
     if (!state.doc) return;
@@ -1127,7 +1158,7 @@ async function boot() {
     .then(async (files) => {
       if (!Array.isArray(files) || !files.length) return { files, doc: null };
       try {
-        return { files, doc: await loader.loadDocument(files[0]) };
+        return { files, doc: await loader.loadDocument(files[0], { maxPixels: previewPixelCap() }) };
       } catch (err) {
         return { files, doc: null };
       }
@@ -1153,6 +1184,12 @@ async function boot() {
   }
 
   subscribe((scope) => {
+    if (scope === 'view') {
+      const d = state.doc;
+      if (d && (d.decodedScale || 1) < 0.999 && state.view.scale > (d.decodedScale || 1) * 0.98) {
+        upgradeToFullRes();
+      }
+    }
     if (scope === 'phase' || scope === 'doc') applyPhaseChrome();
     if (scope === 'doc' || scope === 'view' || scope === 'objects' || scope === 'crop' || scope === 'style') {
       requestRender();
@@ -1221,6 +1258,7 @@ async function boot() {
     // splash fades (setTimeout, not rAF: the window may still be hidden here).
     await new Promise((resolve) => setTimeout(resolve, 16));
   } finally {
+    if (preload?.files?.length && preload?.doc) document.body.classList.add('boot-fast');
     document.body.classList.remove('booting');
     document.body.classList.add('ready');
   }

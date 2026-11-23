@@ -553,3 +553,17 @@ setPhase(p) / setPeekInfo(on)   // core/state.js
   `MutationObserver`（40ms debounce）讓動態插入的字串也自動翻譯。
 - Rust 新增 `ui_locale` 指令（讀 `LUMEN_LANG`），`main.js` 在 `boot()` 一開始 `await` 後呼叫 `initI18n({override})`；
   `body.booting` 仍在，所以翻譯在第一帧之前完成，不會先閃中文。
+
+
+## 39. 效能調查與改善（task-31）
+
+- 量測（同機、Xvfb + 軟體渲染，4 次中位數）：Lumen 12 MP 圖 `PSS 310 MB`、`看到圖片 508 ms`；
+  Loupe 139 MB / 343 ms。行程分解：`lumen 98 MB + WebKitWebProcess 179 MB + WebKitNetworkProcess 33 MB`。
+- 原因是 WebKit 行程模型＋JS 啟動，以及 **12 MP 全尺寸 ImageBitmap（約 48 MB）** 與 **splash 0.3s 淡出**。
+- 改善：
+  1. `loader.buildDoc({ maxPixels })`：預覽以 `max(3.5 MP, 視窗面積×4)` 為上限解碼；已知原圖面積時
+     **一次到位用 `createImageBitmap({resizeWidth})`**（不再「全解碼→縮小」兩次）。
+  2. `loader.ensureFullRes(doc)`：放大超過 `decodedScale`、進入編輯、匯出、估算大小時才換回全解析度 bitmap。
+  3. `body.boot-fast`：從檔案管理器開檔時 splash 直接消失（不再 220–300 ms 淡出）。
+  4. loader 不再保存 `blob`／`objectURL`。
+- 結果：看到圖片 490→447 ms（小圖）、508→469 ms（12 MP）；12 MP PSS 310→269 MB。

@@ -18,9 +18,9 @@ preinstalled GNOME image viewer (Loupe).
 |---|---|---|
 | **Built with** | Tauri 2 (Rust + system WebView), vanilla HTML/CSS | GTK4 / libadwaita (Rust) |
 | **App binary** | **4.0 MB** single ELF | 6.8 MB (package 8.1 MiB) |
-| **Window appears** | **80 ms** (1400×934) · **83 ms** (12 MP) | 146 ms · 151 ms |
-| **Photo visible** | 490 ms · 508 ms | **214 ms** · **343 ms** |
-| **Memory while viewing** (PSS) | 266 MB · 310 MB | **115 MB** · **140 MB** |
+| **Window appears** | **81 ms** (1400×934) · **86 ms** (12 MP) | 146 ms · 148 ms |
+| **Photo visible** | 447 ms · 469 ms | **212 ms** · **339 ms** |
+| **Memory while viewing** (PSS) | 263 MB · 269 MB | **113 MB** · **137 MB** |
 | **Runtime dependencies** | webkit2gtk-4.1 (141 MiB) + GTK3 (54 MiB) | GTK4 (57 MiB) + libadwaita (5.4) + glycin (19.6) |
 | **What it does** | view, **crop**, **resize**, **compress to a target KB**, **annotate** | view, **crop**, rotate, flip |
 | **Annotations** | brush, line, rectangle, ellipse, two-point arrow, text — colour, width, opacity, dashed | — |
@@ -40,6 +40,15 @@ Measured on CachyOS, 13th Gen Intel i9-13900F, Xvfb 1440×900 with software rend
 “photo visible” = first captured frame (60 fps) showing the picture. On a GPU desktop both
 apps start faster; the table compares like-for-like conditions.
 Reproduce with [`scripts/bench-vs-loupe.sh`](scripts/bench-vs-loupe.sh) (Xvfb + Loupe installed).
+
+Why the gap, and what was done about it: Loupe is a single GTK4 process with a native
+decode/texture path; Lumen carries WebKit's process model (WebProcess ≈ 150 MB, NetworkProcess
+≈ 33 MB, shell ≈ 98 MB) plus a JS boot. Measured improvements: the preview decodes at ~2× the
+viewport (a full-resolution bitmap is swapped in when you zoom past it or export), the extra full
+decode was removed, and the splash no longer fades when opening from the file manager — that took
+time-to-photo from 490→447 ms (1400×934) and 508→469 ms (12 MP), and memory from 310→269 MB
+on 12 MP.
+
 
 **Honest summary:** Loupe crops, rotates and flips too — and it is faster to get the photo on
 screen and uses less RAM. Lumen is a **4 MB single binary** that opens its window twice as fast,
