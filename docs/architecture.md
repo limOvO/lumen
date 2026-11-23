@@ -15,16 +15,23 @@ median of 4 runs. "photo" = first frame in a 60 fps capture that shows the pictu
 | current Lumen (Tauri + WebKit) | 81 ms | 447 ms | 469 ms | 263 MB | 269 MB |
 | `spikes/gtk3-viewer` (GTK3 + cairo) | 54 ms | **54 ms** | **104 ms** | **24 MB** | **95 MB** |
 | `spikes/egui-viewer` (wgpu + egui) | 71 ms | 71 ms | 129 ms | 116 MB | 155 MB |
-| **`egui-app` (rewrite in progress)** | 77 ms | **77 ms** | 242 ms | 118 MB | 140 MB |
+| **`egui-app` (rewrite, full UI)** | 76 ms | **76 ms** | 240 ms | 125 MB | 147 MB |
 | Loupe 51.2 (GTK4 / libadwaita) | 146 ms | 212 ms | 339 ms | 113 MB | 137 MB |
 
 ## Note on the egui numbers
 
 The headless session has no Vulkan device, so every wgpu run above used the GL backend on
-llvmpipe. 37 MB of libLLVM + 12 MB of libgallium + 8 MB of libnvidia-gpucomp are *software
-rasteriser* costs that a real GPU session does not pay; the egui app's own heap is ~30 MB
-(including the 390-glyph subset font and the uploaded texture). A GPU session should land
-well under Loupe's 113 MB while keeping the sub-100 ms time-to-photo.
+llvmpipe. ~57 MB of the egui app's PSS is `libLLVM` + `libgallium` + `libnvidia-gpucomp`,
+i.e. *software rasteriser* costs a real GPU session does not pay; its own heap is ~35 MB
+(390-glyph subset font, textures, egui state). On a GPU session it should land at or below
+Loupe's 113 MB while keeping the sub-100 ms time-to-photo.
+
+The rewrite now has full chrome (preview chips/zoom HUD/peek card, editor top bar, rail,
+資訊/調整/裁切 inspector, style dock, shortcuts window), the annotation toolset
+(brush/line/rect/ellipse/arrow/text + dashed), crop with ratio presets, selection with
+two-point handles, 80-step undo, and a full-resolution export pipeline with target-KB
+compression. Remaining before parity sign-off: in-app open/save-as dialogs + folder
+browser, the compare toggle wiring, and the WebP lossy encoder.
 
 ## What the spikes show
 

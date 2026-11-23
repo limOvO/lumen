@@ -1,92 +1,30 @@
-// Lumen (egui edition): preview surface + editor shell.
-// This round covers the viewer end-to-end (open, fit/zoom/pan, folder nav,
-// info panel, status bar, i18n); the annotation toolset comes next.
+// Orchestrator: owns AppState, drives the UI modules, paints the canvas and
+// delegates gestures/annotations/crop to the feature modules.
 
 use std::path::{Path, PathBuf};
 
-use egui::{Color32, Key, Rect, Vec2};
+use egui::{Pos2, Rect, Vec2};
 
 use crate::doc::{siblings, Doc, LoadOptions};
-use crate::i18n::Locale;
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum Phase {
-    Preview,
-    Edit,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum Tool {
-    Move,
-    Brush,
-    Line,
-    Rect,
-    Ellipse,
-    Arrow,
-    Text,
-    Crop,
-}
-
-impl Tool {
-    fn label(self) -> &'static str {
-        match self {
-            Tool::Move => "移動",
-            Tool::Brush => "畫筆",
-            Tool::Line => "直線",
-            Tool::Rect => "矩形",
-            Tool::Ellipse => "圓框",
-            Tool::Arrow => "箭頭",
-            Tool::Text => "文字",
-            Tool::Crop => "裁切",
-        }
-    }
-}
-
-pub struct View {
-    pub scale: f32,
-    pub offset: Vec2,
-    pub fit: bool,
-}
-
-impl Default for View {
-    fn default() -> Self {
-        Self { scale: 1.0, offset: Vec2::ZERO, fit: true }
-    }
-}
+use crate::interaction::{self, CanvasView};
+use crate::state::{AppState, Phase, StatusKind, UiAction};
+use crate::{export, save};
+use crate::{theme, ui};
 
 pub struct LumenApp {
-    pub locale: Locale,
-    pub doc: Option<Doc>,
-    pub error: Option<String>,
-    pub view: View,
-    pub phase: Phase,
-    pub tool: Tool,
-    pub show_info: bool,
-    pub siblings: Vec<PathBuf>,
-    pub index: usize,
-    pub fullscreen: bool,
+    pub state: AppState,
+    estimate_key: String,
+    estimate_at: f64,
+    focused_once: bool,
 }
-
-const BG: Color32 = Color32::from_rgb(16, 16, 18);
-const PANEL: Color32 = Color32::from_rgb(35, 35, 36);
-const TEXT: Color32 = Color32::from_rgb(249, 250, 251);
-const DIM: Color32 = Color32::from_rgb(156, 163, 175);
-const LINE: Color32 = Color32::from_rgba_premultiplied(255, 255, 255, 25);
 
 impl LumenApp {
     pub fn new(initial: Option<PathBuf>) -> Self {
-        let locale = Locale::detect();
         let mut app = Self {
-            locale,
-            doc: None,
-            error: None,
-            view: View::default(),
-            phase: Phase::Preview,
-            tool: Tool::Move,
-            show_info: false,
-            siblings: Vec::new(),
-            index: 0,
-            fullscreen: false,
+            state: AppState::new(crate::i18n::Locale::detect()),
+            estimate_key: String::new(),
+            estimate_at: 0.0,
+            focused_once: false,
         };
         if let Some(path) = initial {
             app.open(&path, None);
@@ -95,307 +33,82 @@ impl LumenApp {
     }
 
     pub fn open(&mut self, path: &Path, ctx: Option<&egui::Context>) {
-        let cap = ui_max_pixels(ctx);
+        let cap = max_pixels(ctx);
         match Doc::load(path, LoadOptions { max_pixels: cap }) {
             Ok(doc) => {
                 let name = doc.name.clone();
-                self.siblings = siblings(path);
-                self.index = self.siblings.iter().position(|p| p == path).unwrap_or(0);
-                self.doc = Some(doc);
-                self.error = None;
-                self.view = View::default();
+                self.state.siblings = siblings(path);
+                self.state.index = self.state.siblings.iter().position(|p| p == path).unwrap_or(0);
+                self.state.doc = Some(doc);
+                self.state.error = None;
+                self.state.reset_for_doc();
+                export::clear_decode_cache();
                 if let Some(ctx) = ctx {
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Title(format!(
-                        "{name} — Lumen"
-                    )));
+                    let title = format!("{name} — Lumen");
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
                 }
             }
             Err(err) => {
-                self.error = Some(self.locale.tr(&err));
+                self.state.error = Some(self.state.locale.tr(&err));
             }
         }
     }
 
     fn step(&mut self, delta: i64, ctx: &egui::Context) {
-        if self.siblings.is_empty() {
+        if self.state.siblings.is_empty() {
             return;
         }
-        let n = self.siblings.len() as i64;
-        let next = ((self.index as i64 + delta + n) % n) as usize;
-        let path = self.siblings[next].clone();
+        let n = self.state.siblings.len() as i64;
+        let next = ((self.state.index as i64 + delta + n) % n) as usize;
+        let path = self.state.siblings[next].clone();
         self.open(&path, Some(ctx));
-    }
-
-    fn fit_scale(&self, avail: Vec2, img: Vec2) -> f32 {
-        (avail.x / img.x).min(avail.y / img.y).min(1.0)
-    }
-
-    fn zoom_at(&mut self, factor: f32, anchor: egui::Pos2, center: egui::Pos2) {
-        let old = self.view.scale;
-        let next = (old * factor).clamp(0.02, 16.0);
-        let rel = anchor - center;
-        self.view.offset = (self.view.offset - rel) * (next / old) + rel;
-        self.view.scale = next;
-        self.view.fit = false;
     }
 
     fn apply_theme(ctx: &egui::Context) {
         let mut visuals = egui::Visuals::dark();
-        visuals.panel_fill = PANEL;
-        visuals.window_fill = PANEL;
-        visuals.extreme_bg_color = BG;
-        visuals.override_text_color = Some(TEXT);
-        visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, LINE);
-        visuals.widgets.inactive.bg_fill = Color32::from_rgb(40, 40, 42);
-        visuals.widgets.hovered.bg_fill = Color32::from_rgb(52, 52, 55);
-        visuals.widgets.active.bg_fill = Color32::from_rgb(64, 64, 68);
+        visuals.panel_fill = theme::PANEL;
+        visuals.window_fill = theme::PANEL;
+        visuals.extreme_bg_color = theme::BG;
+        visuals.override_text_color = Some(theme::TEXT);
+        visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, theme::LINE);
+        visuals.widgets.inactive.bg_fill = egui::Color32::from_rgb(40, 40, 42);
+        visuals.widgets.hovered.bg_fill = egui::Color32::from_rgb(52, 52, 55);
+        visuals.widgets.active.bg_fill = egui::Color32::from_rgb(64, 64, 68);
         ctx.set_visuals(visuals);
     }
 
-    fn top_bar(&mut self, ctx: &egui::Context) {
-        let t = self.locale;
-        egui::TopBottomPanel::top("top")
-            .exact_height(46.0)
-            .frame(
-                egui::Frame::new()
-                    .fill(PANEL)
-                    .inner_margin(egui::Margin::symmetric(12, 6))
-                    .stroke(egui::Stroke::new(1.0, LINE)),
-            )
-            .show(ctx, |ui| {
-                ui.horizontal_centered(|ui| {
-                    let name = self.doc.as_ref().map(|d| d.name.clone()).unwrap_or_default();
-                    ui.label(egui::RichText::new(name).color(TEXT).strong());
-                    ui.add_space(10.0);
-                    ui.label(egui::RichText::new(t.tr("無變更")).color(DIM).size(11.5));
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button(t.tr("關閉")).clicked() {
-                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                        }
-                        if ui.button(t.tr("全螢幕")).clicked() {
-                            self.fullscreen = !self.fullscreen;
-                            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(self.fullscreen));
-                        }
-                        let info_label = if self.show_info { t.tr("隱藏資訊") } else { t.tr("資訊") };
-                        if ui.button(info_label).clicked() {
-                            self.show_info = !self.show_info;
-                        }
-                        let phase_label = match self.phase {
-                            Phase::Preview => t.tr("進入編輯"),
-                            Phase::Edit => t.tr("回到預覽"),
-                        };
-                        if ui.button(phase_label).clicked() {
-                            self.phase = match self.phase {
-                                Phase::Preview => Phase::Edit,
-                                Phase::Edit => Phase::Preview,
-                            };
-                        }
-                    });
-                });
-            });
-    }
-
-    fn info_panel(&mut self, ctx: &egui::Context) {
-        let t = self.locale;
-        egui::SidePanel::right("info")
-            .exact_width(300.0)
-            .resizable(true)
-            .frame(
-                egui::Frame::new()
-                    .fill(PANEL)
-                    .inner_margin(egui::Margin::symmetric(14, 12))
-                    .stroke(egui::Stroke::new(1.0, LINE)),
-            )
-            .show(ctx, |ui| {
-                let Some(doc) = self.doc.as_ref() else { return };
-                ui.label(egui::RichText::new(t.tr("資訊")).strong().size(13.0));
-                ui.add_space(8.0);
-                let rows = [
-                    (t.tr("檔名"), doc.name.clone()),
-                    (t.tr("尺寸"), format!("{} × {} px", doc.width, doc.height)),
-                    (t.tr("格式"), doc.format.clone()),
-                    (t.tr("檔案大小"), format!("{:.1} KB", doc.bytes as f64 / 1024.0)),
-                    (t.tr("修改時間"), doc.mtime.clone()),
-                    (t.tr("目前路徑"), doc.path.display().to_string()),
-                ];
-                egui::Grid::new("info-grid").num_columns(2).spacing([10.0, 8.0]).show(ui, |ui| {
-                    for (k, v) in rows {
-                        ui.label(egui::RichText::new(k).color(DIM).size(11.5));
-                        ui.label(egui::RichText::new(v).color(TEXT).size(11.5));
-                        ui.end_row();
-                    }
-                });
-                ui.add_space(10.0);
-                ui.separator();
-                ui.add_space(6.0);
-                ui.label(egui::RichText::new(format!("EXIF · {}", doc.exif.len())).color(DIM).size(11.5));
-                ui.add_space(4.0);
-                for (k, v) in &doc.exif {
-                    ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new(k).color(DIM).size(11.0));
-                        ui.label(egui::RichText::new(v).color(TEXT).size(11.0));
-                    });
-                }
-            });
-    }
-
-    fn tool_rail(&mut self, ctx: &egui::Context) {
-        let t = self.locale;
-        egui::SidePanel::left("rail")
-            .exact_width(56.0)
-            .resizable(false)
-            .frame(
-                egui::Frame::new()
-                    .fill(PANEL)
-                    .inner_margin(egui::Margin::symmetric(8, 10))
-                    .stroke(egui::Stroke::new(1.0, LINE)),
-            )
-            .show(ctx, |ui| {
-                ui.vertical_centered(|ui| {
-                    for tool in [
-                        Tool::Move,
-                        Tool::Brush,
-                        Tool::Line,
-                        Tool::Rect,
-                        Tool::Ellipse,
-                        Tool::Arrow,
-                        Tool::Text,
-                        Tool::Crop,
-                    ] {
-                        let selected = self.tool == tool;
-                        let label = t.tr(tool.label());
-                        let btn = egui::Button::new(
-                            egui::RichText::new(label.chars().next().unwrap_or('?').to_string())
-                                .size(14.0),
-                        )
-                        .min_size(Vec2::splat(36.0))
-                        .fill(if selected { Color32::from_rgb(64, 64, 68) } else { Color32::TRANSPARENT });
-                        if ui.add(btn).on_hover_text(label).clicked() {
-                            self.tool = tool;
-                        }
-                    }
-                });
-            });
-    }
-
-    fn status_bar(&mut self, ctx: &egui::Context) {
-        let t = self.locale;
-        egui::TopBottomPanel::bottom("status")
-            .exact_height(26.0)
-            .frame(
-                egui::Frame::new()
-                    .fill(PANEL)
-                    .inner_margin(egui::Margin::symmetric(12, 4))
-                    .stroke(egui::Stroke::new(1.0, LINE)),
-            )
-            .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    if let Some(doc) = self.doc.as_ref() {
-                        ui.label(
-                            egui::RichText::new(format!(
-                                "{} × {} · {} · {:.1} KB",
-                                doc.width,
-                                doc.height,
-                                doc.format,
-                                doc.bytes as f64 / 1024.0
-                            ))
-                            .color(DIM)
-                            .size(11.0),
-                        );
-                    } else if let Some(err) = self.error.as_ref() {
-                        ui.label(egui::RichText::new(err).color(Color32::from_rgb(239, 68, 68)).size(11.0));
-                    }
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let z = format!("{:.0}%", self.view.scale * 100.0);
-                        if ui
-                            .add(egui::Button::new(egui::RichText::new(z).size(11.0)).frame(false))
-                            .on_hover_text(t.tr("適應視窗"))
-                            .clicked()
-                        {
-                            self.view.fit = true;
-                        }
-                    });
-                });
-            });
-    }
-
-    fn canvas(&mut self, ctx: &egui::Context) {
-        egui::CentralPanel::default()
-            .frame(egui::Frame::new().fill(BG))
-            .show(ctx, |ui| {
-                let rect = ui.max_rect();
-                let painter = ui.painter_at(rect);
-                painter.rect_filled(rect, 0.0, BG);
-                let Some(doc) = self.doc.as_ref() else {
-                    painter.text(
-                        rect.center(),
-                        egui::Align2::CENTER_CENTER,
-                        self.locale.tr("尚未載入圖片"),
-                        egui::FontId::proportional(14.0),
-                        DIM,
-                    );
-                    return;
-                };
-                let img = Vec2::new(doc.width as f32, doc.height as f32);
-                if self.view.fit {
-                    self.view.scale = self.fit_scale(rect.size(), img);
-                    self.view.offset = Vec2::ZERO;
-                }
-                let preview_scale = doc.decoded_scale();
-                let need_full = doc.needs_full(self.view.scale);
-                let (tex, _tex_scale) = {
-                    let doc = self.doc.as_mut().expect("doc");
-                    doc.texture_for(ctx, self.view.scale)
-                };
-                let size = img * self.view.scale;
-                let draw_rect = Rect::from_center_size(rect.center() + self.view.offset, size);
-                painter.image(
-                    tex.id(),
-                    draw_rect,
-                    Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
-                    Color32::WHITE,
-                );
-                painter.rect_stroke(
-                    draw_rect,
-                    0.0,
-                    egui::Stroke::new(1.0, Color32::from_rgba_premultiplied(255, 255, 255, 26)),
-                    egui::StrokeKind::Outside,
-                );
-                if need_full && preview_scale < 1.0 {
-                    ui.ctx().request_repaint();
-                }
-
-                // interactions
-                let response = ui.interact(rect, ui.id().with("canvas"), egui::Sense::click_and_drag());
-                let scroll = ui.input(|i| i.raw_scroll_delta.y);
-                if scroll.abs() > 0.0 && response.hovered() {
-                    let factor = (scroll * 0.0015).exp();
-                    let anchor = response.hover_pos().unwrap_or(rect.center());
-                    self.zoom_at(factor, anchor, rect.center());
-                }
-                if response.dragged_by(egui::PointerButton::Primary) && !self.view.fit {
-                    self.view.offset += response.drag_delta();
-                }
-                if response.double_clicked() {
-                    self.view.fit = true;
-                }
-            });
-    }
-
     fn handle_keys(&mut self, ctx: &egui::Context) {
-        let (left, right, plus, minus, zero, info, edit, esc, fullscreen) = ctx.input(|i| {
-            (
-                i.key_pressed(Key::ArrowLeft),
-                i.key_pressed(Key::ArrowRight),
-                i.key_pressed(Key::Plus) || i.key_pressed(Key::Equals),
-                i.key_pressed(Key::Minus),
-                i.key_pressed(Key::Num0),
-                i.key_pressed(Key::I),
-                i.key_pressed(Key::E) || i.key_pressed(Key::V),
-                i.key_pressed(Key::Escape),
-                i.key_pressed(Key::F),
-            )
-        });
+        use egui::Key;
+        let (left, right, plus, minus, zero, info, edit, esc, full, undo, redo, del, shortcuts) =
+            ctx.input(|i| {
+                (
+                    i.key_pressed(Key::ArrowLeft),
+                    i.key_pressed(Key::ArrowRight),
+                    i.key_pressed(Key::Plus) || i.key_pressed(Key::Equals),
+                    i.key_pressed(Key::Minus),
+                    i.key_pressed(Key::Num0),
+                    i.key_pressed(Key::I),
+                    i.key_pressed(Key::E),
+                    i.key_pressed(Key::Escape),
+                    i.key_pressed(Key::F),
+                    i.modifiers.command && i.key_pressed(Key::Z) && !i.modifiers.shift,
+                    i.modifiers.command && i.key_pressed(Key::Z) && i.modifiers.shift,
+                    i.key_pressed(Key::Delete) || i.key_pressed(Key::Backspace),
+                    i.key_pressed(Key::Questionmark),
+                )
+            });
+        // The canvas owns Esc while a two-click gesture / inline text editor is
+        // active, and owns Delete/undo while typing (otherwise Esc would leave
+        // the editor and Backspace would delete the selected annotation).
+        let esc = esc && !crate::interaction::wants_escape();
+        let del = del && !crate::interaction::text_editing();
+        let undo = undo && !crate::interaction::text_editing();
+        let redo = redo && !crate::interaction::text_editing();
+        // While the inline annotation text editor is open every canvas shortcut
+        // must stay out of the way (typing "e"/"v" would otherwise switch modes).
+        if crate::interaction::text_editing() {
+            return;
+        }
         if left {
             self.step(-1, ctx);
         }
@@ -403,43 +116,264 @@ impl LumenApp {
             self.step(1, ctx);
         }
         if plus {
-            let center = ctx.screen_rect().center();
-            self.zoom_at(1.25, center, center);
+            let c = ctx.screen_rect().center();
+            self.zoom_at(1.25, c, c);
         }
         if minus {
-            let center = ctx.screen_rect().center();
-            self.zoom_at(0.8, center, center);
+            let c = ctx.screen_rect().center();
+            self.zoom_at(0.8, c, c);
         }
         if zero {
-            self.view.fit = true;
+            self.state.view.fit = true;
         }
         if info {
-            self.show_info = !self.show_info;
+            self.state.show_info = !self.state.show_info;
+        }
+        if shortcuts {
+            self.state.show_shortcuts = !self.state.show_shortcuts;
+        }
+        if undo {
+            self.state.undo();
+        }
+        if redo {
+            self.state.redo();
+        }
+        if del {
+            self.state.delete_selected();
+        }
+        // tool shortcuts (edit mode only): V B R O A L T C
+        if self.state.phase == Phase::Edit {
+            use crate::state::Tool;
+            let tool_key = ctx.input(|i| {
+                if i.key_pressed(Key::V) {
+                    Some(Tool::Move)
+                } else if i.key_pressed(Key::B) {
+                    Some(Tool::Brush)
+                } else if i.key_pressed(Key::R) {
+                    Some(Tool::Rect)
+                } else if i.key_pressed(Key::O) {
+                    Some(Tool::Ellipse)
+                } else if i.key_pressed(Key::A) {
+                    Some(Tool::Arrow)
+                } else if i.key_pressed(Key::L) {
+                    Some(Tool::Line)
+                } else if i.key_pressed(Key::T) {
+                    Some(Tool::Text)
+                } else if i.key_pressed(Key::C) {
+                    Some(Tool::Crop)
+                } else {
+                    None
+                }
+            });
+            if let Some(tool) = tool_key {
+                self.state.set_tool(tool);
+            }
+        }
+        if self.state.tool == crate::state::Tool::Text || edit {
+            crate::fonts::ensure_annotation_font(ctx, self.state.locale);
         }
         if edit {
-            self.phase = match self.phase {
+            self.state.phase = match self.state.phase {
                 Phase::Preview => Phase::Edit,
                 Phase::Edit => Phase::Preview,
             };
+            if self.state.phase == Phase::Edit {
+                self.state.set_tool(self.state.tool);
+            }
         }
-        if fullscreen {
-            self.fullscreen = !self.fullscreen;
-            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(self.fullscreen));
+        if full {
+            self.state.fullscreen = !self.state.fullscreen;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(self.state.fullscreen));
         }
         if esc {
-            if self.phase == Phase::Edit {
-                self.phase = Phase::Preview;
-            } else if self.fullscreen {
-                self.fullscreen = false;
+            if self.state.show_shortcuts {
+                self.state.show_shortcuts = false;
+            } else if self.state.show_info {
+                self.state.show_info = false;
+            } else if self.state.phase == Phase::Edit {
+                self.state.phase = Phase::Preview;
+            } else if self.state.fullscreen {
+                self.state.fullscreen = false;
                 ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(false));
-            } else {
-                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
+        }
+    }
+
+    fn zoom_at(&mut self, factor: f32, anchor: Pos2, center: Pos2) {
+        let old = self.state.view.scale;
+        let next = (old * factor).clamp(0.02, 16.0);
+        let rel = anchor - center;
+        self.state.view.offset = (self.state.view.offset - rel) * (next / old) + rel;
+        self.state.view.scale = next;
+        self.state.view.fit = false;
+    }
+
+    /// Ctrl+S / 儲存: flatten with the current settings and overwrite the file.
+    fn save_overwrite(&mut self) {
+        let Some(doc) = self.state.doc.as_ref() else {
+            self.state.status("先開啟一張圖片", StatusKind::Info, now());
+            return;
+        };
+        let fmt = self.state.output.format;
+        let flat = export::flatten(
+            doc,
+            &self.state.objects,
+            self.state.crop,
+            self.state.output.max_dim,
+            None,
+        );
+        let bytes = match self.state.output.target_kb {
+            Some(kb) => export::encode_to_target(&flat.image, fmt, kb),
+            None => export::encode(&flat.image, fmt, self.state.output.quality),
+        };
+        match save::overwrite(doc, &bytes) {
+            Ok(()) => {
+                self.state.dirty = false;
+                self.state.status(format!("已儲存 · {} × {} px", flat.width, flat.height), StatusKind::Ok, now());
+            }
+            Err(err) => self.state.status(err, StatusKind::Err, now()),
+        }
+    }
+
+    /// Recompute the live size estimate (throttled; the decode cache makes it cheap).
+    fn refresh_estimate(&mut self) {
+        let now_ms = now();
+        let Some(doc) = self.state.doc.as_ref() else { return };
+        let key = format!(
+            "{:?}|{}|{:?}|{:?}|{:?}|{}|{}",
+            self.state.output.format,
+            self.state.output.quality,
+            self.state.output.max_dim,
+            self.state.output.target_kb,
+            self.state.crop.map(|c| (c.x.round() as i64, c.y.round() as i64, c.w.round() as i64, c.h.round() as i64, c.ratio.map(|r| (r * 1000.0) as i64))),
+            self.state.objects.len(),
+            now_ms.floor() as u64 / 2
+        );
+        if self.state.estimate.is_some() && key == self.estimate_key && now_ms - self.estimate_at < 1200.0 {
+            return;
+        }
+        self.estimate_key = key;
+        self.estimate_at = now_ms;
+        self.state.estimate =
+            Some(export::estimate_size(doc, &self.state.objects, &self.state.output, self.state.crop));
+    }
+
+    fn drain_actions(&mut self, ctx: &egui::Context) {
+        for action in self.state.take_actions() {
+            match action {
+                UiAction::Prev => self.step(-1, ctx),
+                UiAction::Next => self.step(1, ctx),
+                UiAction::CloseWindow => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
+                UiAction::ApplyCrop => {
+                    self.state.crop_committed = true;
+                }
+                UiAction::ResetCrop => {
+                    self.state.crop = None;
+                    self.state.crop_committed = false;
+                }
+                UiAction::Save => self.save_overwrite(),
+                UiAction::Estimate => self.refresh_estimate(),
+                // file dialogs land with the browser/save-as UI
+                UiAction::Open | UiAction::SaveAs | UiAction::Export => {}
+            }
+        }
+    }
+
+    fn canvas(&mut self, ctx: &egui::Context) {
+        egui::CentralPanel::default()
+            .frame(egui::Frame::new().fill(theme::CANVAS))
+            .show(ctx, |ui| {
+                let rect = ui.max_rect();
+                let painter = ui.painter_at(rect);
+                let Some(doc) = self.state.doc.as_mut() else {
+                    painter.text(
+                        rect.center(),
+                        egui::Align2::CENTER_CENTER,
+                        self.state.locale.tr("尚未載入圖片"),
+                        egui::FontId::proportional(14.0),
+                        theme::DIM,
+                    );
+                    return;
+                };
+                let (w, h) = (doc.width as f32, doc.height as f32);
+                if self.state.view.fit {
+                    self.state.view.scale = (rect.width() / w).min(rect.height() / h).min(1.0);
+                    self.state.view.offset = Vec2::ZERO;
+                }
+                let scale = self.state.view.scale;
+                let tex = doc.texture_for(ctx, scale).0;
+                let center = rect.center() + self.state.view.offset;
+                let img_center = Vec2::new(w / 2.0, h / 2.0);
+                let draw_rect = Rect::from_center_size(center, Vec2::new(w * scale, h * scale));
+                painter.image(
+                    tex.id(),
+                    draw_rect,
+                    Rect::from_min_max(Pos2::ZERO, egui::pos2(1.0, 1.0)),
+                    egui::Color32::WHITE,
+                );
+                painter.rect_stroke(
+                    draw_rect,
+                    0.0,
+                    egui::Stroke::new(1.0, egui::Color32::from_rgba_premultiplied(255, 255, 255, 26)),
+                    egui::StrokeKind::Outside,
+                );
+
+                let to_screen = move |p: Pos2| center + (p.to_vec2() - img_center) * scale;
+                let to_image = move |p: Pos2| (img_center + (p.to_vec2() - center.to_vec2()) / scale).to_pos2();
+
+                if !self.state.compare {
+                    for obj in &self.state.objects {
+                        obj.draw(&painter, &to_screen, scale);
+                    }
+                }
+                if self.state.tool == crate::state::Tool::Crop {
+                    if let Some(crop) = self.state.crop.as_ref() {
+                        crop.draw(&painter, &to_screen, scale);
+                    }
+                }
+
+                let view = CanvasView {
+                    rect,
+                    to_screen: Box::new(to_screen),
+                    to_image: Box::new(to_image),
+                    zoom: scale,
+                };
+                interaction::handle_canvas(ui, &mut self.state, &view);
+            });
+    }
+}
+
+impl eframe::App for LumenApp {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        Self::apply_theme(ctx);
+        if !self.focused_once {
+            self.focused_once = true;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+        }
+        self.handle_keys(ctx);
+        ui::topbar::show(ctx, &mut self.state);
+        ui::rail::show(ctx, &mut self.state);
+        ui::inspector::show(ctx, &mut self.state);
+        ui::dock::show(ctx, &mut self.state);
+        ui::status::show(ctx, &mut self.state);
+        ui::info::show(ctx, &mut self.state);
+        ui::shortcuts::show(ctx, &mut self.state);
+        self.canvas(ctx);
+        self.drain_actions(ctx);
+        if self.state.phase == Phase::Edit && self.state.doc.is_some() {
+            self.refresh_estimate();
         }
     }
 }
 
-fn ui_max_pixels(ctx: Option<&egui::Context>) -> u64 {
+fn now() -> f64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs_f64())
+        .unwrap_or(0.0)
+}
+
+fn max_pixels(ctx: Option<&egui::Context>) -> u64 {
     let (w, h) = ctx
         .map(|c| {
             let r = c.screen_rect();
@@ -447,20 +381,4 @@ fn ui_max_pixels(ctx: Option<&egui::Context>) -> u64 {
         })
         .unwrap_or((1280.0, 820.0));
     ((w * h * 4.0) as u64).max(3_500_000)
-}
-
-impl eframe::App for LumenApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        Self::apply_theme(ctx);
-        self.handle_keys(ctx);
-        self.top_bar(ctx);
-        if self.phase == Phase::Edit {
-            self.tool_rail(ctx);
-        }
-        if self.show_info {
-            self.info_panel(ctx);
-        }
-        self.status_bar(ctx);
-        self.canvas(ctx);
-    }
 }

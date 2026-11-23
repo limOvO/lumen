@@ -14,6 +14,8 @@ egui = "0.32"
 wgpu = { version = "25", default-features = false, features = ["vulkan", "gles"] }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif", "bmp", "tiff"] }
 kamadak-exif = "0.6"
+tiny-skia = "0.11"
+ab_glyph = "0.2"
 
 [profile.release]
 opt-level = 2
