@@ -28,11 +28,12 @@ pub fn show(ctx: &egui::Context, state: &mut AppState) {
     }
     let t = motion::intro(ctx, Id::new("empty-card-intro"), INTRO);
     let screen = ctx.screen_rect();
-    let collapsed = local::get(ctx, |l| l.inspector_collapsed);
+    let (collapsed, inspector_w) =
+        local::get(ctx, |l| (l.inspector_collapsed, l.inspector_width));
     let canvas = Rect::from_min_max(
         Pos2::new(screen.left() + theme::RAIL_W, screen.top() + theme::TOPBAR_H),
         Pos2::new(
-            screen.right() - if collapsed { 0.0 } else { theme::PANEL_W },
+            screen.right() - if collapsed { 0.0 } else { inspector_w },
             screen.bottom() - theme::STATUS_H,
         ),
     );

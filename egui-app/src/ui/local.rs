@@ -42,6 +42,8 @@ pub struct Local {
     pub inspector_collapsed: bool,
     /// 調整 panel: proportional-resize lock (on by default, like the web build).
     pub lock_ratio: bool,
+    /// Inspector width in points (web: 240–420, default 300).
+    pub inspector_width: f32,
     /// Screen rect of the floating preview dock (so the peek card can ignore
     /// presses on the button that opens/closes it).
     pub preview_dock: Rect,
@@ -58,6 +60,7 @@ impl Default for Local {
             last_tool: None,
             inspector_collapsed: false,
             lock_ratio: true,
+            inspector_width: crate::theme::PANEL_W,
             preview_dock: Rect::NOTHING,
             style_dock: Rect::NOTHING,
             last_doc_path: String::new(),

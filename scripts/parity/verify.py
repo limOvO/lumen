@@ -472,6 +472,15 @@ def main():
                   for k, p in pts.items()}
         check("G9", "chrome palette matches the web build (max channel delta <= 4)",
               max(deltas.values()) <= 4, str(deltas))
+        # inspector grip: pill straddles the panel edge in both builds
+        grip_web = web_im.getpixel((980, 400))
+        grip_egui = egui_im.getpixel((980, 400))
+        grip_outer_web = web_im.getpixel((966, 400))
+        grip_outer_egui = egui_im.getpixel((966, 400))
+        grip_ok = (max(abs(a - b) for a, b in zip(grip_web, grip_egui)) <= 6
+                   and max(abs(a - b) for a, b in zip(grip_outer_web, grip_outer_egui)) <= 6)
+        check("G10", "inspector grip pill matches the web build", grip_ok,
+              f"edge {grip_web} vs {grip_egui}, outer {grip_outer_web} vs {grip_outer_egui}")
     else:
         check("G9", "chrome palette matches the web build", False, "web capture failed")
 

@@ -1,7 +1,7 @@
 // Right-side inspector for the editor: 資訊 / 調整 / 裁切 tabs.
 // The info page is shared with the preview peek card (info.rs).
 
-use egui::{Align, FontId, Id, Pos2, Rect, Sense, Stroke, Ui, Vec2};
+use egui::{Align, Color32, FontId, Id, Pos2, Rect, Sense, Stroke, Ui, Vec2};
 
 use crate::i18n::Locale;
 use crate::state::{AppState, OutputFormat, Phase, StatusKind, Tool, UiAction};
@@ -15,7 +15,9 @@ use super::widgets::{self, Icon};
 pub fn show(ctx: &egui::Context, state: &mut AppState) {
     // Same slide/fade as the rail: width 0 -> 300 with a small x-offset.
     // Collapsing the inspector (top-bar button) animates through the same path.
-    let collapsed = local::get(ctx, |l| l.inspector_collapsed);
+    let (collapsed, panel_w) = local::get(ctx, |l| {
+        (l.inspector_collapsed, l.inspector_width.clamp(240.0, 420.0))
+    });
     // body.no-doc keeps the inspector visible even in the preview phase.
     let target = !collapsed && (state.phase == Phase::Edit || state.doc.is_none());
     let t = motion::blend(ctx, Id::new("inspector-slide"), target, motion::PANEL);
@@ -37,7 +39,7 @@ pub fn show(ctx: &egui::Context, state: &mut AppState) {
     } else {
         local::get(ctx, |l| l.tab)
     };
-    let width = (theme::PANEL_W * t).max(0.0);
+    let width = (panel_w * t).max(0.0);
 
     egui::SidePanel::right("inspector")
         .exact_width(width)
@@ -46,8 +48,7 @@ pub fn show(ctx: &egui::Context, state: &mut AppState) {
         .frame(
             egui::Frame::new()
                 .fill(motion::faded(theme::PANEL, t))
-                .inner_margin(egui::Margin::ZERO)
-                .stroke(Stroke::new(1.0_f32, motion::faded(theme::LINE, t))),
+                .inner_margin(egui::Margin::ZERO),
         )
         .show(ctx, |ui| {
             ui.set_opacity(t);
@@ -56,10 +57,10 @@ pub fn show(ctx: &egui::Context, state: &mut AppState) {
             let base = ui.max_rect();
             let content = Rect::from_min_size(
                 Pos2::new(
-                    base.right() - theme::PANEL_W + motion::slide_offset(t, 6.0),
+                    base.right() - panel_w + motion::slide_offset(t, 6.0),
                     base.top(),
                 ),
-                Vec2::new(theme::PANEL_W, base.height()),
+                Vec2::new(panel_w, base.height()),
             );
             widgets::at_rect(ui, content, |ui| panel_content(ui, state, tab));
         });
@@ -71,8 +72,9 @@ fn panel_content(ui: &mut Ui, state: &mut AppState, tab: PanelTab) {
     ui.painter().vline(
         rect.left(),
         rect.y_range(),
-        Stroke::new(1.0_f32, widgets::white(26)),
+        Stroke::new(1.0_f32, widgets::white(66)),
     );
+    resize_grip(ui, rect);
     let active = tabs(ui, tab, state.locale);
     if active != tab {
         local::with(ui.ctx(), |l| l.tab = active);
@@ -89,6 +91,53 @@ fn panel_content(ui: &mut Ui, state: &mut AppState, tab: PanelTab) {
             ui.set_width(ui.available_width());
             page(ui, active, state);
         });
+}
+
+/// Web `#insp-grip`: a small pill on the panel edge that drags the width.
+fn resize_grip(ui: &mut Ui, panel: Rect) {
+    let grip = Rect::from_center_size(
+        // Web `#insp-grip` straddles the panel edge (half over the canvas).
+        Pos2::new(panel.left(), panel.center().y),
+        Vec2::new(15.0, 38.0),
+    );
+    let resp = ui.interact(grip, ui.id().with("insp-grip"), Sense::drag());
+    let hovered = resp.hovered() || resp.dragged();
+    let painter = ui.painter();
+    painter.rect_filled(
+        grip,
+        egui::CornerRadius::same(8),
+        if hovered {
+            Color32::from_rgb(40, 40, 42)
+        } else {
+            Color32::from_rgb(28, 28, 30)
+        },
+    );
+    painter.rect_stroke(
+        grip,
+        egui::CornerRadius::same(8),
+        Stroke::new(1.0_f32, widgets::white(if hovered { 120 } else { 52 })),
+        egui::StrokeKind::Inside,
+    );
+    let line = Stroke::new(1.0_f32, widgets::white(if hovered { 200 } else { 90 }));
+    for dx in [-2.0_f32, 2.0] {
+        let x = grip.center().x + dx;
+        painter.line_segment(
+            [
+                Pos2::new(x, grip.center().y - 8.0),
+                Pos2::new(x, grip.center().y + 8.0),
+            ],
+            line,
+        );
+    }
+    if hovered {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+    }
+    if resp.dragged() {
+        let dx = resp.drag_delta().x;
+        local::with(ui.ctx(), |l| {
+            l.inspector_width = (l.inspector_width - dx).clamp(240.0, 420.0);
+        });
+    }
 }
 
 /// Tab strip: three equal labels with a sliding 2px underline.

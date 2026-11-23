@@ -23,6 +23,7 @@ Tauri/WebKit build in this repo, driven by the same scripts.
 | 14 | Shortcuts | `?` panel, Esc behaviour, F fullscreen, I info | B12 + B3/B4 |
 | 15 | Benchmark | time-to-photo and PSS ≤ reference on the same box | P2 (inline bench, median of 2) |
 | 16 | Empty state | full editor chrome + centred drop card (drag/drop, 開啟圖片…, 快捷鍵, Ctrl+O hint) | B14/B14b (card pixel count + rail colour) |
+| 18 | Inspector grip | pill straddles the panel edge and drags the width (240–420) | G10 (pixel comparison against a live web capture) |
 | 17 | Drag & drop | dropping a file/folder opens it | implemented in app.rs (`raw.dropped_files`), covered by code review (xdotool cannot synthesise DnD) |
 
 Compare semantics match `src/js/main.js`: the toggle survives phase changes and resets
@@ -58,7 +59,7 @@ Known, accepted differences (not testable/changed here):
 ## Automated gate
 
 `python3 scripts/parity/verify.py` drives the real egui binary (private Xvfb `:96`) and asserts
-40 checks spanning geometry, palette parity against a live WebView capture, presence of every
+41 checks spanning geometry, palette parity against a live WebView capture, presence of every
 chrome region, tool behaviour (brush/line/arrow/rect/crop/text/delete/undo/redo/compare),
 zoom/fit behaviour, animated transitions (image switch, phase glide, rail slide, dock rise,
 peek close), idle CPU, languages, single-instance forwarding, save/save-as and the benchmark.
