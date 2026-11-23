@@ -541,3 +541,15 @@ setPhase(p) / setPeekInfo(on)   // core/state.js
   `startPhaseViewTween(duration, originDx, originDy)`，補償進起始 view：
   `from.tx += stageLeftBefore - stageLeftAfter`（ty 同理），之後才開始插值到置中 fit 目標。
 - 實測（60fps 追蹤字標）：切換前 (873,606) → 第一帧 (861,602)，無跳動；兩個方向皆如此。
+
+
+## 37. 多語系（task-29）
+
+- 原始文案是繁體中文；`scripts/gen-i18n.py` 讀 `scripts/i18n/keys.json` + `en.json`，
+  簡中用 `opencc -c t2s.json` 轉換，輸出 `src/js/core/i18n-data.js`（`TRANSLATIONS['zh-Hans'|'en']`）。
+- `src/js/core/i18n.js`：`detectLocale()`（`navigator.languages`；`zh` + `hant/tw/hk/mo` → `zh-Hant`，
+  `hans/cn/sg/my` → `zh-Hans`，其餘一律 `en`；可用 `LUMEN_LANG` 覆寫），`tr()`（精確比對 →
+  帶 `${…}` 的樣板用 regex 比對並遞迴翻譯捕獲值），`applyDom()`（文字節點＋`title/aria-label/placeholder/data-tip/alt`），
+  `MutationObserver`（40ms debounce）讓動態插入的字串也自動翻譯。
+- Rust 新增 `ui_locale` 指令（讀 `LUMEN_LANG`），`main.js` 在 `boot()` 一開始 `await` 後呼叫 `initI18n({override})`；
+  `body.booting` 仍在，所以翻譯在第一帧之前完成，不會先閃中文。

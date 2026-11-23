@@ -11,6 +11,7 @@ import {
 
 import * as loader from './core/loader.js';
 import * as viewport from './core/viewport.js';
+import { initI18n, tr } from './core/i18n.js';
 import * as annotate from './core/annotate.js';
 import * as exporter from './core/export.js';
 
@@ -568,7 +569,7 @@ async function browseTo(dir) {
 }
 
 function updateTitle() {
-  const name = state.doc?.name || 'Lumen';
+  const name = tr(state.doc?.name || 'Lumen');
   const title = state.doc ? `${name}${state.dirty ? ' •' : ''} — Lumen` : 'Lumen';
   document.title = title;
   bridge.invoke('set_window_title', { title }).catch(() => {});
@@ -1110,6 +1111,9 @@ function initDrop() {
  * ------------------------------------------------------------------ */
 
 async function boot() {
+  const forcedLocale = await bridge.invoke('ui_locale').catch(() => '');
+  initI18n({ override: forcedLocale });
+
   // The shell reveals the window in setup() (already painted in the dark
   // background colour); no round-trip is needed here.
   applyPhaseChrome();

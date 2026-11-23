@@ -541,6 +541,12 @@ fn home_pictures() -> String {
 
 /// Called by the frontend as soon as the boot splash has painted, so the window
 /// is revealed already dark instead of flashing white (or an empty shell).
+/// UI language override (`LUMEN_LANG=zh-Hans|zh-Hant|en`); empty = follow the OS.
+#[tauri::command]
+fn ui_locale() -> String {
+    std::env::var("LUMEN_LANG").unwrap_or_default()
+}
+
 #[tauri::command]
 fn app_ready(window: tauri::Window) {
     let _ = window.show();
@@ -980,6 +986,7 @@ fn main() {
             startup_files,
             home_pictures,
             app_ready,
+            ui_locale,
             set_window_title
         ])
         .run(tauri::generate_context!())

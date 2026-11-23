@@ -31,6 +31,22 @@
 |---|---|
 | ![資料夾](docs/showcase/browser.png) | ![空狀態](docs/showcase/empty.png) |
 
+## 語言
+
+介面跟隨系統語言，三種語系：
+
+| 系統語言 | 介面語言 |
+|---|---|
+| `zh-TW` / `zh-HK` / `zh-MO` / `zh-Hant*` | **繁體中文**（原始文案） |
+| `zh-CN` / `zh-SG` / `zh-Hans*` | **简体中文**（OpenCC 轉換，隨原始文案自動同步） |
+| 其他任何語言（英文、日文、德文…） | **English** |
+
+需要固定語言時可用環境變數覆寫：`LUMEN_LANG=zh-Hans`（或 `zh-Hant` / `en`）。
+
+字串表的維護流程：改完介面文案後執行 `python3 scripts/gen-i18n.py`，它會用 `scripts/i18n/keys.json`
+（原始繁中字串）＋ `scripts/i18n/en.json`（英文翻譯）重新產生 `src/js/core/i18n-data.js`，
+簡中則由 OpenCC 自動轉換。
+
 ## 啟動
 
 - 視窗在 Rust `setup()` 就顯示（此時是深色底 `#101012`，不會白屏），實測**程序啟動後約 55ms 視窗就出現**；
