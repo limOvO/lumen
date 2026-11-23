@@ -110,6 +110,24 @@ Output: JPEG (white background), PNG, WebP.
 **Language:** follows the OS — Traditional Chinese, Simplified Chinese, English for
 everything else. Force it with `LUMEN_LANG=zh-Hans` (or `zh-Hant`, `en`).
 
+## Rust + wgpu + egui rewrite (in progress)
+
+A second build of Lumen is being ported to **Rust + wgpu + egui** (no WebView) to reach
+Loupe-class footprint with GPU rendering:
+
+```bash
+scripts/build-egui.sh            # → dist/lumen-egui
+scripts/install-egui.sh          # install to ~/.local (add --desktop-shortcut / --set-default)
+WGPU_BACKEND=gl ./dist/lumen-egui photo.jpg    # GL fallback for headless/software GL
+```
+
+Current state: full viewer + editor chrome, annotation toolset (brush/line/rect/ellipse/
+arrow/text, dashed, weight-600 text), crop with ratio presets, export with JPEG/lossy-WebP
+target-KB compression, save/save-as, in-app folder browser with thumbnails, single-instance
+forwarding, 80-step undo, and the three languages. 118 unit tests + a parity gate:
+`scripts/parity/check.sh` (12 paired captures against the web build + geometry assertions);
+matrix: [docs/parity.md](docs/parity.md), benchmarks: [docs/architecture.md](docs/architecture.md).
+
 ## License
 
 MIT.

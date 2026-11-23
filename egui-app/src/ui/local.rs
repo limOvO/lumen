@@ -47,6 +47,8 @@ pub struct Local {
     pub preview_dock: Rect,
     /// Screen rect of the floating annotation style dock (hover/idle test).
     pub style_dock: Rect,
+    /// Path of the document the UI last saw (drives web-style `openDoc` resets).
+    pub last_doc_path: String,
 }
 
 impl Default for Local {
@@ -58,8 +60,15 @@ impl Default for Local {
             lock_ratio: true,
             preview_dock: Rect::NOTHING,
             style_dock: Rect::NOTHING,
+            last_doc_path: String::new(),
         }
     }
+}
+
+/// The web build resets compare only in `openDoc()` (a different file), not on
+/// phase changes — keep that rule in one testable place.
+pub fn should_reset_compare(previous_doc: &str, current_doc: &str) -> bool {
+    previous_doc != current_doc && !current_doc.is_empty()
 }
 
 fn id() -> Id {
@@ -89,6 +98,16 @@ mod tests {
             assert_eq!(tab.index(), i);
             assert!(!tab.label().is_empty());
         }
+    }
+
+    #[test]
+    fn compare_resets_only_when_a_new_document_loads() {
+        assert!(!super::should_reset_compare("", ""));
+        assert!(!super::should_reset_compare("/a.png", "/a.png"));
+        assert!(super::should_reset_compare("/a.png", "/b.png"));
+        assert!(super::should_reset_compare("", "/a.png"));
+        // An unloaded document must not clear compare.
+        assert!(!super::should_reset_compare("/a.png", ""));
     }
 
     #[test]

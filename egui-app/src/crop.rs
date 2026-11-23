@@ -525,6 +525,40 @@ mod tests {
         assert_eq!(c.ratio, None);
     }
 
+    /// Regression for the 1400x934 parity capture: the web rebuild ends at
+    /// exactly 934x934 for a 1:1 lock (not 937), 1120x630 for 16:9 and
+    /// 1120x840 for 4:3, starting from the 80% default crop (1120x747).
+    #[test]
+    fn ratio_rebuild_matches_the_web_capture_numbers() {
+        let (dw, dh) = (1400u32, 934u32);
+        let base = CropRect::centered(dw, dh, None);
+        assert_eq!((base.x, base.y), (140.0, 93.0));
+        assert_eq!((base.w, base.h), (1120.0, 747.0));
+        assert_eq!(base.normalized(dw, dh), base);
+
+        let square = base.with_ratio(dw, dh, Some(1.0));
+        assert_eq!((square.w, square.h), (934.0, 934.0));
+        assert_eq!((square.x, square.y), (233.0, 0.0));
+        assert!(square.to_rect().max.x <= dw as f32);
+        assert!(square.to_rect().max.y <= dh as f32);
+
+        let wide = base.with_ratio(dw, dh, Some(16.0 / 9.0));
+        assert_eq!((wide.w, wide.h), (1120.0, 630.0));
+        assert_eq!((wide.x, wide.y), (140.0, 152.0));
+
+        let four3 = base.with_ratio(dw, dh, Some(4.0 / 3.0));
+        assert_eq!((four3.w, four3.h), (1120.0, 840.0));
+        assert_eq!((four3.x, four3.y), (140.0, 47.0));
+
+        // The size shown in the inspector is these rounded values, and the same
+        // numbers must survive the 套用裁切 normalise step used for export.
+        for c in [square, wide, four3] {
+            let applied = c.normalized(dw, dh);
+            assert_eq!((applied.w, applied.h), (c.w, c.h));
+            assert_eq!((applied.x, applied.y), (c.x, c.y));
+        }
+    }
+
     #[test]
     fn ratio_rebuild_from_edge_stays_inside() {
         let doc = (800u32, 600u32);

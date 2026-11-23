@@ -411,10 +411,7 @@ pub fn crop_page(ui: &mut Ui, state: &mut AppState) {
     });
 
     ui.add_space(14.0);
-    let value = match crop {
-        Some(c) => format!("{} × {} px", c.w.round() as i64, c.h.round() as i64),
-        None => format!("{} × {} px", dw, dh),
-    };
+    let value = format::crop_readout(crop, dw, dh);
     let (rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 30.0), Sense::hover());
     let painter = ui.painter();
     painter.text(

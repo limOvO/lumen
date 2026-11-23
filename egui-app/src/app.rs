@@ -2,6 +2,7 @@
 // delegates gestures/annotations/crop to the feature modules.
 
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::Receiver;
 
 use egui::{Pos2, Rect, Vec2};
 
@@ -22,10 +23,11 @@ pub struct LumenApp {
     pub browser: Browser,
     pub dialog: SaveDialog,
     dialog_snap: Option<(OutputFormat, u8, Option<u32>, Option<f32>, Option<u32>)>,
+    incoming: Option<Receiver<PathBuf>>,
 }
 
 impl LumenApp {
-    pub fn new(initial: Option<PathBuf>) -> Self {
+    pub fn new(initial: Option<PathBuf>, incoming: Option<Receiver<PathBuf>>) -> Self {
         let mut app = Self {
             state: AppState::new(crate::i18n::Locale::detect()),
             estimate_key: String::new(),
@@ -42,6 +44,7 @@ impl LumenApp {
                 d
             },
             dialog_snap: None,
+            incoming,
         };
         if let Some(path) = initial {
             app.open(&path, None);
@@ -440,6 +443,7 @@ impl eframe::App for LumenApp {
         Self::apply_theme(ctx);
         if !self.focused_once {
             self.focused_once = true;
+            crate::single_instance::attach_context(ctx.clone());
             ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
         }
         let modal_open = self.browser.open || self.dialog.open;
@@ -455,6 +459,12 @@ impl eframe::App for LumenApp {
         ui::shortcuts::show(ctx, &mut self.state);
         self.canvas(ctx);
         self.drain_actions(ctx);
+        if let Some(rx) = self.incoming.take() {
+            while let Ok(path) = rx.try_recv() {
+                self.open(&path, Some(ctx));
+            }
+            self.incoming = Some(rx);
+        }
         if self.browser.open {
             let locale = self.state.locale;
             if let Some(path) = self.browser.show(ctx, locale) {

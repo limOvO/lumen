@@ -18,15 +18,25 @@ chars |= set(chr(c) for c in range(0x20, 0x7F))
 chars |= set('·×—…「」『』（）：；，。、！？％／')
 (root / 'scripts/i18n/subset-chars.txt').write_text(''.join(sorted(chars)), encoding='utf-8')
 
-src = '/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc'
-if not pathlib.Path(src).exists():
-    sys.exit('system Noto Sans CJK collection not found: ' + src)
+sources = {
+    'NotoSansCJK-Regular.ttc': 'NotoSansCJK',
+    'NotoSansCJK-Bold.ttc': 'NotoSansCJKBold',
+}
+for filename in sources:
+    if not pathlib.Path('/usr/share/fonts/noto-cjk', filename).exists():
+        sys.exit('system Noto Sans CJK collection not found: ' + filename)
 outdir = root / 'egui-app/assets'
 outdir.mkdir(parents=True, exist_ok=True)
-for name, index in (('NotoSansCJKtc-subset.otf', 3), ('NotoSansCJKsc-subset.otf', 2)):
+faces = [
+    ('NotoSansCJK-Regular.ttc', 'NotoSansCJKtc-subset.otf', 3),
+    ('NotoSansCJK-Regular.ttc', 'NotoSansCJKsc-subset.otf', 2),
+    ('NotoSansCJK-Bold.ttc', 'NotoSansCJKtc-Bold-subset.otf', 3),
+    ('NotoSansCJK-Bold.ttc', 'NotoSansCJKsc-Bold-subset.otf', 2),
+]
+for source, name, index in faces:
     out = outdir / name
     subprocess.run(
-        [sys.executable, '-m', 'fontTools.subset', src,
+        [sys.executable, '-m', 'fontTools.subset', '/usr/share/fonts/noto-cjk/' + source,
          f'--font-number={index}',
          f'--text-file={root}/scripts/i18n/subset-chars.txt',
          '--layout-features=*', '--no-hinting', '--desubroutinize',

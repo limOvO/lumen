@@ -15,7 +15,7 @@ median of 4 runs. "photo" = first frame in a 60 fps capture that shows the pictu
 | current Lumen (Tauri + WebKit) | 81 ms | 447 ms | 469 ms | 263 MB | 269 MB |
 | `spikes/gtk3-viewer` (GTK3 + cairo) | 54 ms | **54 ms** | **104 ms** | **24 MB** | **95 MB** |
 | `spikes/egui-viewer` (wgpu + egui) | 71 ms | 71 ms | 129 ms | 116 MB | 155 MB |
-| **`egui-app` (rewrite, full UI)** | 77 ms | **77 ms** | 229 ms | 125 MB | 147 MB |
+| **`egui-app` (rewrite, full UI)** | 79 ms | **79 ms** | 237 ms | 125 MB | 148 MB |
 | Loupe 51.2 (GTK4 / libadwaita) | 146 ms | 212 ms | 339 ms | 113 MB | 137 MB |
 
 ## Note on the egui numbers
@@ -30,10 +30,11 @@ The rewrite now has full chrome (preview chips/zoom HUD/peek card, editor top ba
 資訊/調整/裁切 inspector, style dock, shortcuts window), the annotation toolset
 (brush/line/rect/ellipse/arrow/text + dashed), crop with ratio presets, selection with
 two-point handles, 80-step undo, and a full-resolution export pipeline with target-KB
-compression. Open/save-as dialogs and the folder browser are wired now (Ctrl+O/S/Shift+S + buttons),
-and the compare toggle skips annotation painting. Remaining before parity sign-off:
-WebP lossy encoder, text weight 600 in exports, thumbnails in the browser, and the
-remaining visual polish on the preview peek card / crop rounding.
+compression. The rewrite now also has: lossy WebP with target-KB bisection, weight-600 annotation text
+on screen and in exports, folder-browser thumbnails matching the CSS row geometry,
+single-instance forwarding (second launch updates the running window), and packaging
+(scripts/build-egui.sh / install-egui.sh + desktop entry). Parity gate:
+`scripts/parity/check.sh` (12 paired captures + geometry) and 118 unit tests.
 
 ## What the spikes show
 

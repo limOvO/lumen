@@ -19,3 +19,27 @@ pub const STATUS_H: f32 = 26.0;
 pub const DOCK_H: f32 = 56.0;
 
 pub const MOTION: f32 = 0.22;
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The chrome geometry must stay in sync with the web build's CSS
+    /// (src/css/tokens.css / app.css): 46px top bar, 56px rail, 300px panel,
+    /// 26px status bar.
+    #[test]
+    fn layout_matches_web_css() {
+        assert_eq!(TOPBAR_H, 46.0);
+        assert_eq!(RAIL_W, 56.0);
+        assert_eq!(PANEL_W, 300.0);
+        assert_eq!(STATUS_H, 26.0);
+    }
+
+    #[test]
+    fn palette_matches_tokens_css() {
+        assert_eq!(BG.to_array(), [16, 16, 18, 255]);
+        assert_eq!(PANEL.to_array(), [35, 35, 36, 255]);
+        assert_eq!(TEXT.to_array(), [249, 250, 251, 255]);
+    }
+}

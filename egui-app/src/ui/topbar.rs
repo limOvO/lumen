@@ -10,6 +10,22 @@ use super::local;
 use super::widgets::{self, Btn, Icon};
 
 pub fn show(ctx: &egui::Context, state: &mut AppState) {
+    // The web build resets compare in `openDoc()` when another file is loaded;
+    // it survives phase changes (`setPhase()` never touches it). Mirror that
+    // here so the UI stays the source of truth for the reset.
+    let path = state
+        .doc
+        .as_ref()
+        .map(|d| d.path.display().to_string())
+        .unwrap_or_default();
+    let reset_compare = local::with(ctx, |l| {
+        let reset = local::should_reset_compare(&l.last_doc_path, &path);
+        l.last_doc_path = path;
+        reset
+    });
+    if reset_compare {
+        state.compare = false;
+    }
     match state.phase {
         Phase::Preview => super::preview::chrome(ctx, state),
         Phase::Edit => editor_bar(ctx, state),
@@ -160,8 +176,9 @@ fn editor_bar(ctx: &egui::Context, state: &mut AppState) {
                         has_doc,
                     );
                     if preview.clicked() {
+                        // Compare intentionally survives the phase change (web
+                        // only clears it in openDoc()).
                         state.phase = Phase::Preview;
-                        state.compare = false;
                     }
                 });
             });

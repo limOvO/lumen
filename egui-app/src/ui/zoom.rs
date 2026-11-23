@@ -43,8 +43,8 @@ pub fn zoom_fit(state: &mut AppState) {
     state.view.fit = true;
 }
 
-fn hud_icon(ui: &mut Ui, icon: Icon, enabled: bool) -> egui::Response {
-    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(30.0), Sense::click());
+fn hud_icon(ui: &mut Ui, icon: Icon, enabled: bool, height: f32) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(Vec2::new(30.0, height), Sense::click());
     let hovered = enabled && resp.hovered();
     let painter = ui.painter();
     if hovered {
@@ -70,8 +70,8 @@ fn hud_icon(ui: &mut Ui, icon: Icon, enabled: bool) -> egui::Response {
     resp
 }
 
-fn hud_value(ui: &mut Ui, text: &str, width: f32, enabled: bool) -> egui::Response {
-    let (rect, resp) = ui.allocate_exact_size(Vec2::new(width, 30.0), Sense::click());
+fn hud_value(ui: &mut Ui, text: &str, width: f32, height: f32, font: f32, enabled: bool) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(Vec2::new(width, height), Sense::click());
     let hovered = enabled && resp.hovered();
     if hovered {
         ui.painter().rect_filled(rect, CornerRadius::same(8), widgets::white(18));
@@ -80,7 +80,7 @@ fn hud_value(ui: &mut Ui, text: &str, width: f32, enabled: bool) -> egui::Respon
         rect.center(),
         egui::Align2::CENTER_CENTER,
         text,
-        FontId::proportional(11.0),
+        FontId::proportional(font),
         if !enabled {
             widgets::disabled(theme::DIM)
         } else if hovered {
@@ -123,24 +123,29 @@ pub fn stack(ui: &mut Ui, state: &mut AppState, vertical: bool) {
         "—".to_string()
     };
     let enabled = ui.is_enabled() && has_doc;
+    let (icon_h, value_w, value_h, value_font) = if vertical {
+        (27.0, 30.0, 22.0, 10.0)
+    } else {
+        (30.0, 48.0, 30.0, 11.0)
+    };
     let mut body = |ui: &mut Ui| {
-        let resp = hud_icon(ui, Icon::Plus, enabled);
+        let resp = hud_icon(ui, Icon::Plus, enabled, icon_h);
         if resp.clicked() && enabled {
             zoom_in(state, floor);
         }
         resp.on_hover_text("放大（+）");
-        let resp = hud_value(ui, &pct, if vertical { 30.0 } else { 48.0 }, enabled);
+        let resp = hud_value(ui, &pct, value_w, value_h, value_font, enabled);
         if resp.clicked() && enabled {
             zoom_fit(state);
         }
         resp.on_hover_text("目前縮放比例，點擊適應視窗");
-        let resp = hud_icon(ui, Icon::Minus, enabled);
+        let resp = hud_icon(ui, Icon::Minus, enabled, icon_h);
         if resp.clicked() && enabled {
             zoom_out(state, floor);
         }
         resp.on_hover_text("縮小（-）");
         hud_sep(ui, vertical);
-        let resp = hud_icon(ui, Icon::Fit, enabled);
+        let resp = hud_icon(ui, Icon::Fit, enabled, icon_h);
         if resp.clicked() && enabled {
             zoom_fit(state);
         }
@@ -179,7 +184,8 @@ pub fn rail_frame() -> egui::Frame {
 /// Alignment helper for callers that place the stack themselves.
 pub fn stack_height(vertical: bool) -> f32 {
     if vertical {
-        3.0 * 30.0 + 22.0 + 5.0 + 6.0
+        // web `#toolrail #zoom-hud`: 27px buttons, 22px value, 1px gaps, 3px padding.
+        27.0 * 3.0 + 22.0 + 5.0 + 3.0 * 1.0 + 6.0
     } else {
         36.0
     }

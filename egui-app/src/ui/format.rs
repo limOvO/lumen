@@ -158,6 +158,17 @@ pub fn dimension_to_output(
     }
 }
 
+/// Inspector 目前裁切 readout ("W × H px"), or the whole image when there is
+/// no crop. The web build rounds the crop rect (`Math.round`) for display, so
+/// this must round too — otherwise the label shows 936/937 while the drawn
+/// frame and the export pipeline use the integer rect.
+pub fn crop_readout(crop: Option<crate::crop::CropRect>, doc_w: u32, doc_h: u32) -> String {
+    match crop {
+        Some(c) => format!("{} × {} px", c.w.round() as i64, c.h.round() as i64),
+        None => format!("{doc_w} × {doc_h} px"),
+    }
+}
+
 /// Format bytes for the status slot: "—" when unavailable.
 pub fn format_estimate(bytes: Option<u64>, width: u32, height: u32) -> String {
     match bytes {
@@ -243,6 +254,24 @@ mod tests {
         assert!((scale.unwrap() - 2.0).abs() < 1e-6);
         // Editing to the native size clears both.
         assert_eq!(dimension_to_output(base, 1400, true), (None, Some(1.0)));
+    }
+
+    #[test]
+    fn crop_readout_matches_web_numbers() {
+        use crate::crop::CropRect;
+        // Default 80% crop of the parity sample (1400×934).
+        let free = CropRect::centered(1400, 934, None);
+        assert_eq!(crop_readout(Some(free), 1400, 934), "1120 × 747 px");
+        // 1:1 is clamped by the short edge.
+        let square = free.with_ratio(1400, 934, Some(1.0));
+        assert_eq!(crop_readout(Some(square), 1400, 934), "934 × 934 px");
+        // Each chip is applied from the default 80% crop (web driver sequence).
+        let wide = free.with_ratio(1400, 934, Some(16.0 / 9.0));
+        assert_eq!(crop_readout(Some(wide), 1400, 934), "1120 × 630 px");
+        let four_three = free.with_ratio(1400, 934, Some(4.0 / 3.0));
+        assert_eq!(crop_readout(Some(four_three), 1400, 934), "1120 × 840 px");
+        // No crop -> the whole document.
+        assert_eq!(crop_readout(None, 1400, 934), "1400 × 934 px");
     }
 
     #[test]

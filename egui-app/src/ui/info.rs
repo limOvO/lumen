@@ -53,7 +53,7 @@ pub fn show(ctx: &egui::Context, state: &mut AppState) {
                         .show(ui, |ui| {
                             ui.add_space(4.0);
                             egui::Frame::new()
-                                .inner_margin(egui::Margin::symmetric(14, 10))
+                                .inner_margin(egui::Margin::symmetric(14, 12))
                                 .show(ui, |ui| {
                                     ui.set_width(ui.available_width());
                                     super::inspector::info_page(ui, state);

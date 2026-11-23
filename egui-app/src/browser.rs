@@ -2,9 +2,15 @@
 //
 // Parity source: src/js/ui/browser.js — current path + 前往, 上層資料夾,
 // subfolders before images (natural sort), folder row enters on a single click,
-// image row selects on click and opens on double click, file/folder counts,
-// 開啟 confirm, Esc closes. std::fs only (no native dialogs), hidden entries
-// skipped, the image filter is `doc::image_ext`.
+// image row selects on click and opens on double click, real thumbnails on the
+// image rows, file/folder counts, 開啟 confirm, Esc closes. std::fs only (no
+// native dialogs), hidden entries skipped, the image filter is `doc::image_ext`.
+//
+// Thumbnails are decoded lazily into a small bounded LRU cache (path + mtime +
+// size key) and uploaded as egui textures; at most `THUMB_PER_FRAME` decodes
+// happen per frame (and never more than ~8 ms of decoding), with the placeholder
+// glyph shown until a row's thumbnail is ready. Unreadable/unsupported files are
+// cached as "failed" so they are not retried every frame.
 //
 // Public API (wired by app.rs, owner: dialogs-dev):
 //   Browser::new(start: Option<PathBuf>) -> Browser      // open == true
@@ -14,12 +20,13 @@
 //   browser.open_at(start: Option<PathBuf>) / browser.close() // reuse helpers
 
 use std::cmp::Ordering as CmpOrdering;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::time::SystemTime;
+use std::time::{Duration, Instant, SystemTime};
 
 use egui::{
-    Align, Align2, Color32, CornerRadius, CursorIcon, FontId, Id, Layout, Order, Pos2, Rect,
-    Sense, Shape, Stroke, StrokeKind, Vec2,
+    Align, Align2, ColorImage, Color32, CornerRadius, CursorIcon, FontId, Id, Layout, Order,
+    Pos2, Rect, Sense, Shape, Stroke, StrokeKind, Vec2,
 };
 
 use crate::doc::image_ext;
@@ -32,10 +39,27 @@ const CARD_W: f32 = 640.0;
 const HEAD_H: f32 = 58.0;
 const NAV_H: f32 = 50.0;
 const FOOT_H: f32 = 42.0;
+/// Row height of the list: web `.browser-row` padding 6px 8px + `.browser-thumb`
+/// 44px = 56px pitch.
 const ROW_H: f32 = 56.0;
+/// Painted thumbnail box, matching web `.browser-thumb` (44×44).
+const THUMB_BOX: f32 = 44.0;
 const PAD: f32 = 16.0;
 const ERR_H: f32 = 34.0;
 const PATH_INPUT: &str = "lumen-browser-path";
+
+/// Decoded/uploaded thumbnail size: 2x the painted box so HiDPI screens stay
+/// crisp while the texture budget stays tiny (64×64×4 = 16 KiB each).
+const THUMB_DECODE: u32 = 64;
+/// Bounded LRU capacity — a modal shows ~12 rows, and recently visited folders
+/// stay warm without pinning memory.
+const THUMB_CACHE_CAP: usize = 64;
+/// Never decode more than this many thumbnails in one frame…
+const THUMB_PER_FRAME: usize = 3;
+/// …and never spend longer than this decoding in one frame.
+const THUMB_TIME_BUDGET: Duration = Duration::from_millis(8);
+/// Refuse to decode absurdly large bitmaps just to make a 30px thumbnail.
+const MAX_DECODE_PIXELS: u64 = 120_000_000;
 
 /// One row of the folder listing.
 #[derive(Clone)]
@@ -45,6 +69,104 @@ struct Entry {
     is_dir: bool,
     size: u64,
     mtime: Option<SystemTime>,
+}
+
+/// Identity of a cached thumbnail. A file can change without its name changing,
+/// so the cache key carries mtime + size (same idea as `export`'s decode cache).
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+struct ThumbKey {
+    path: PathBuf,
+    mtime: Option<SystemTime>,
+    size: u64,
+}
+
+impl ThumbKey {
+    fn for_entry(entry: &Entry) -> Self {
+        Self { path: entry.path.clone(), mtime: entry.mtime, size: entry.size }
+    }
+
+    /// egui texture name. The version suffix makes egui upload fresh pixels
+    /// when the file changes while keeping one live texture per path.
+    fn texture_name(&self) -> String {
+        let version = self
+            .mtime
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_millis())
+            .unwrap_or(0);
+        format!("lumen-thumb:{}:{}:{}", self.path.display(), version, self.size)
+    }
+}
+
+struct ThumbEntry {
+    key: ThumbKey,
+    /// `None` = the file could not be decoded (cached so the row keeps its
+    /// placeholder instead of retrying every frame).
+    texture: Option<egui::TextureHandle>,
+    /// LRU stamp (monotonically increasing frame-local counter).
+    used: u64,
+}
+
+/// Bounded LRU of decoded thumbnails, keyed by path and invalidated by
+/// mtime/size. Pure bookkeeping (no drawing) so the eviction rules are unit
+/// tested without an egui context.
+struct ThumbCache {
+    entries: HashMap<PathBuf, ThumbEntry>,
+    capacity: usize,
+    tick: u64,
+}
+
+impl ThumbCache {
+    fn new(capacity: usize) -> Self {
+        Self { entries: HashMap::new(), capacity: capacity.max(1), tick: 0 }
+    }
+
+    /// `Some(Some(handle))` for a fresh hit, `Some(None)` when the file is a
+    /// known decode failure, `None` when the entry is missing or stale. Touches
+    /// the LRU on a hit.
+    fn lookup(&mut self, key: &ThumbKey) -> Option<Option<egui::TextureHandle>> {
+        self.tick += 1;
+        let tick = self.tick;
+        let entry = self.entries.get_mut(&key.path)?;
+        if entry.key != *key {
+            return None;
+        }
+        entry.used = tick;
+        Some(entry.texture.clone())
+    }
+
+    fn insert(&mut self, key: ThumbKey, texture: Option<egui::TextureHandle>) {
+        self.tick += 1;
+        let used = self.tick;
+        self.entries.insert(key.path.clone(), ThumbEntry { key, texture, used });
+        while self.entries.len() > self.capacity {
+            if !self.evict_one() {
+                break;
+            }
+        }
+    }
+
+    /// Drop the least-recently-used entry. Returns whether anything was removed.
+    fn evict_one(&mut self) -> bool {
+        let victim = self
+            .entries
+            .iter()
+            .min_by_key(|(_, entry)| entry.used)
+            .map(|(path, _)| path.clone());
+        match victim {
+            Some(path) => self.entries.remove(&path).is_some(),
+            None => false,
+        }
+    }
+
+    /// Fresh entry for this exact key (never a stale one).
+    fn contains(&self, key: &ThumbKey) -> bool {
+        self.entries.get(&key.path).map_or(false, |entry| entry.key == *key)
+    }
+
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.entries.len()
+    }
 }
 
 /// What a row click asked for (applied after the list loop so `self` is free).
@@ -69,6 +191,12 @@ pub struct Browser {
     /// Timestamp of the last folder entry, so a double click on a folder row
     /// does not descend twice (the first click already reloaded the list).
     last_enter_at: f64,
+    /// Lazily decoded image thumbnails (bounded LRU, keyed by path+mtime+size).
+    thumbs: ThumbCache,
+    /// Scroll offset of the list after the last frame; kept so tests can prove
+    /// the selected row was scrolled into view.
+    #[allow(dead_code)]
+    last_scroll_offset: Vec2,
 }
 
 impl Browser {
@@ -87,6 +215,8 @@ impl Browser {
             focus_path: true,
             scroll_to_selected: false,
             last_enter_at: f64::NEG_INFINITY,
+            thumbs: ThumbCache::new(THUMB_CACHE_CAP),
+            last_scroll_offset: Vec2::ZERO,
         }
     }
 
@@ -148,6 +278,9 @@ impl Browser {
 
         let mut chosen: Option<PathBuf> = None;
         let mut close_requested = false;
+        // Rows that still need a thumbnail this frame (visible ones first).
+        let mut visible_thumbs: Vec<ThumbKey> = Vec::new();
+        let mut queued_thumbs: Vec<ThumbKey> = Vec::new();
 
         egui::Window::new(locale.tr("開啟圖片"))
             .id(Id::new("lumen-browser"))
@@ -409,7 +542,7 @@ impl Browser {
                         .layout(Layout::top_down(Align::Min)),
                 );
                 list_ui.set_clip_rect(ui.clip_rect().intersect(list_rect));
-                egui::ScrollArea::vertical()
+                let scroll_out = egui::ScrollArea::vertical()
                     .id_salt("lumen-browser-list")
                     .auto_shrink([false, false])
                     .show(&mut list_ui, |ui| {
@@ -460,25 +593,51 @@ impl Browser {
                                 );
                             }
                             let thumb = Rect::from_center_size(
-                                Pos2::new(row_rect.left() + 8.0 + 22.0, row_rect.center().y),
-                                Vec2::splat(44.0),
+                                Pos2::new(
+                                    row_rect.left() + 8.0 + THUMB_BOX / 2.0,
+                                    row_rect.center().y,
+                                ),
+                                Vec2::splat(THUMB_BOX),
                             );
                             painter.rect_filled(thumb, CornerRadius::same(6), widgets::SURFACE);
+                            let glyph =
+                                Rect::from_center_size(thumb.center(), Vec2::splat(22.0));
+                            if entry.is_dir {
+                                paint_folder_glyph(painter, glyph, theme::DIM);
+                            } else {
+                                let key = ThumbKey::for_entry(entry);
+                                match self.thumbs.lookup(&key) {
+                                    Some(Some(texture)) => {
+                                        painter.image(
+                                            texture.id(),
+                                            thumb.shrink(1.0),
+                                            Rect::from_min_max(
+                                                Pos2::ZERO,
+                                                Pos2::new(1.0, 1.0),
+                                            ),
+                                            Color32::WHITE,
+                                        );
+                                    }
+                                    Some(None) => {
+                                        // Known decode failure: keep the placeholder.
+                                        paint_image_glyph(painter, glyph, theme::DIM);
+                                    }
+                                    None => {
+                                        paint_image_glyph(painter, glyph, theme::DIM);
+                                        if ui.clip_rect().intersects(row) || active {
+                                            visible_thumbs.push(key);
+                                        } else {
+                                            queued_thumbs.push(key);
+                                        }
+                                    }
+                                }
+                            }
                             painter.rect_stroke(
                                 thumb,
                                 CornerRadius::same(6),
                                 Stroke::new(1.0_f32, widgets::white(28)),
                                 StrokeKind::Inside,
                             );
-                            let glyph = Rect::from_center_size(
-                                thumb.center(),
-                                Vec2::splat(22.0),
-                            );
-                            if entry.is_dir {
-                                paint_folder_glyph(painter, glyph, theme::DIM);
-                            } else {
-                                paint_image_glyph(painter, glyph, theme::DIM);
-                            }
                             let text_x = thumb.right() + 10.0;
                             let max_w = (row_rect.right() - text_x - 8.0).max(10.0);
                             let name_font = FontId::proportional(11.5);
@@ -579,7 +738,12 @@ impl Browser {
                         }
                         ui.add_space(6.0);
                     });
+                self.last_scroll_offset = scroll_out.state.offset;
                 self.scroll_to_selected = false;
+                if !visible_thumbs.is_empty() || !queued_thumbs.is_empty() {
+                    visible_thumbs.append(&mut queued_thumbs);
+                    self.fill_thumbnails(ui.ctx(), std::mem::take(&mut visible_thumbs));
+                }
 
                 // --- footer -------------------------------------------------
                 let (foot, _) =
@@ -605,6 +769,28 @@ impl Browser {
             self.open = false;
         }
         chosen
+    }
+
+    /// Decode at most `THUMB_PER_FRAME` queued thumbnails and stop once the
+    /// frame's decode budget is spent, so the modal keeps painting at speed
+    /// while the list fills in. Queue order is visible rows first.
+    fn fill_thumbnails(&mut self, ctx: &egui::Context, queue: Vec<ThumbKey>) {
+        if queue.is_empty() {
+            return;
+        }
+        let deadline = Instant::now() + THUMB_TIME_BUDGET;
+        let mut decoded = 0usize;
+        for key in queue {
+            if decoded >= THUMB_PER_FRAME || Instant::now() >= deadline {
+                break;
+            }
+            if self.thumbs.contains(&key) {
+                continue;
+            }
+            let texture = decode_thumbnail(&key).map(|image| upload_thumbnail(ctx, &key, image));
+            self.thumbs.insert(key, texture);
+            decoded += 1;
+        }
     }
 
     // -- folder loading -----------------------------------------------------
@@ -683,6 +869,56 @@ impl Browser {
             Err(issue) => self.error = Some(path_issue_message(locale, issue)),
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Thumbnails
+// ---------------------------------------------------------------------------
+
+/// Decode one image into a small square RGBA thumbnail (centre-cropped like the
+/// web's `object-fit: cover`). Cheap by design: the header is read first so a
+/// panorama is never decoded, then the decoder is asked for at most
+/// `THUMB_DECODE`×`THUMB_DECODE` bytes. Returns `None` for any failure; the row
+/// keeps its placeholder glyph and the failure is cached.
+fn decode_thumbnail(key: &ThumbKey) -> Option<ColorImage> {
+    let reader = image::ImageReader::open(&key.path).ok()?;
+    let reader = reader.with_guessed_format().ok()?;
+    let (width, height) = reader.into_dimensions().ok()?;
+    if width == 0 || height == 0 || (width as u64) * (height as u64) > MAX_DECODE_PIXELS {
+        return None;
+    }
+    let decoded = image::ImageReader::open(&key.path)
+        .ok()?
+        .with_guessed_format()
+        .ok()?
+        .decode()
+        .ok()?;
+    let thumbnail = decoded.thumbnail(THUMB_DECODE, THUMB_DECODE);
+    let square = square_cover(thumbnail.to_rgba8());
+    let (w, h) = square.dimensions();
+    if w == 0 || h == 0 {
+        return None;
+    }
+    Some(ColorImage::from_rgba_unmultiplied(
+        [w as usize, h as usize],
+        square.as_raw(),
+    ))
+}
+
+/// Centre-crop to a square (the aspect-ratio part of `object-fit: cover`).
+fn square_cover(image: image::RgbaImage) -> image::RgbaImage {
+    let (width, height) = image.dimensions();
+    let side = width.min(height);
+    if side == 0 || width == height {
+        return image;
+    }
+    let x = (width - side) / 2;
+    let y = (height - side) / 2;
+    image::imageops::crop_imm(&image, x, y, side, side).to_image()
+}
+
+fn upload_thumbnail(ctx: &egui::Context, key: &ThumbKey, image: ColorImage) -> egui::TextureHandle {
+    ctx.load_texture(key.texture_name(), image, egui::TextureOptions::LINEAR)
 }
 
 // ---------------------------------------------------------------------------
@@ -1225,6 +1461,223 @@ mod tests {
         let en = path_issue_message(Locale::En, PathIssue::Empty);
         assert!(!en.is_empty());
         assert_ne!(path_issue_message(Locale::ZhHant, PathIssue::NotDir), zh);
+    }
+
+    fn frame_input() -> egui::RawInput {
+        let mut input = egui::RawInput::default();
+        input.screen_rect =
+            Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1280.0, 820.0)));
+        input
+    }
+
+    fn key_event(key: egui::Key) -> egui::Event {
+        egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }
+    }
+
+    /// Cache key for tests: `tag` becomes both the size and the mtime version.
+    fn thumb_key(path: &str, tag: u64) -> ThumbKey {
+        ThumbKey {
+            path: PathBuf::from(path),
+            mtime: (tag > 0)
+                .then(|| std::time::UNIX_EPOCH + std::time::Duration::from_secs(tag)),
+            size: tag,
+        }
+    }
+
+    #[test]
+    fn thumb_cache_evicts_the_least_recently_used_entry() {
+        let mut cache = ThumbCache::new(3);
+        for i in 0..3 {
+            cache.insert(thumb_key(&format!("/tmp/thumb-{i}.jpg"), i), None);
+        }
+        assert_eq!(cache.len(), 3);
+        // Touch entry 0 so entry 1 becomes the least recently used one.
+        assert!(cache.lookup(&thumb_key("/tmp/thumb-0.jpg", 0)).is_some());
+        cache.insert(thumb_key("/tmp/thumb-3.jpg", 3), None);
+        assert_eq!(cache.len(), 3);
+        assert!(cache.contains(&thumb_key("/tmp/thumb-0.jpg", 0)));
+        assert!(!cache.contains(&thumb_key("/tmp/thumb-1.jpg", 1)), "LRU entry should be evicted");
+        assert!(cache.contains(&thumb_key("/tmp/thumb-3.jpg", 3)));
+        // Capacity is a hard bound even after many inserts.
+        for i in 10..40 {
+            cache.insert(thumb_key(&format!("/tmp/thumb-{i}.jpg"), i), None);
+        }
+        assert_eq!(cache.len(), 3);
+    }
+
+    #[test]
+    fn thumb_cache_remembers_failures_and_invalidates_changed_files() {
+        let mut cache = ThumbCache::new(4);
+        let key = thumb_key("/tmp/a.jpg", 10);
+        assert!(cache.lookup(&key).is_none(), "cold cache is a miss");
+        // A decode failure is cached as `Some(None)` so it is not retried.
+        cache.insert(key.clone(), None);
+        // `TextureHandle` has no Debug, so match instead of assert_eq!.
+        assert!(matches!(cache.lookup(&key), Some(None)), "failure must be cached");
+        // Same path, different mtime/size (file edited) is a miss again.
+        let changed = ThumbKey { path: key.path.clone(), mtime: key.mtime, size: key.size + 1 };
+        assert!(cache.lookup(&changed).is_none());
+        assert!(!cache.contains(&changed));
+    }
+
+    #[test]
+    fn thumb_key_tracks_mtime_and_size_for_texture_names() {
+        let base = thumb_key("/tmp/x.jpg", 1);
+        let bigger = ThumbKey { path: base.path.clone(), mtime: base.mtime, size: 2 };
+        let other_mtime =
+            ThumbKey { path: base.path.clone(), mtime: Some(std::time::UNIX_EPOCH), size: 1 };
+        assert_ne!(base, bigger);
+        assert_ne!(base, other_mtime);
+        // Every version gets its own egui texture name (one live texture per path).
+        assert_ne!(base.texture_name(), bigger.texture_name());
+        assert_ne!(base.texture_name(), other_mtime.texture_name());
+        assert!(base.texture_name().starts_with("lumen-thumb:/tmp/x.jpg:"));
+    }
+
+    #[test]
+    fn square_cover_centre_crops_the_aspect_ratio() {
+        let source = image::RgbaImage::from_fn(4, 2, |x, _| {
+            image::Rgba([(x * 40) as u8, 10, 20, 255])
+        });
+        let square = square_cover(source);
+        assert_eq!(square.dimensions(), (2, 2));
+        // Columns 1 and 2 of the original survive (centre crop).
+        assert_eq!(square.get_pixel(0, 0)[0], 40);
+        assert_eq!(square.get_pixel(1, 0)[0], 80);
+        // Already-square images are returned untouched.
+        let square2 = image::RgbaImage::from_pixel(3, 3, image::Rgba([1, 2, 3, 255]));
+        assert_eq!(square_cover(square2).dimensions(), (3, 3));
+    }
+
+    #[test]
+    fn thumbnails_are_decode_budgeted_per_frame() {
+        let dir = temp_dir("thumb-budget");
+        for i in 0..6 {
+            std::fs::write(dir.join(format!("img{i}.png")), b"not an image").expect("write");
+        }
+        let ctx = egui::Context::default();
+        let mut browser = Browser::new(Some(dir.clone()));
+        let input = frame_input();
+        let _ = ctx.run(input.clone(), |ctx| {
+            browser.show(ctx, Locale::ZhHant);
+        });
+        // Only the per-frame budget is attempted; failures are cached as well.
+        assert_eq!(browser.thumbs.len(), THUMB_PER_FRAME);
+        for _ in 0..2 {
+            let _ = ctx.run(input.clone(), |ctx| {
+                browser.show(ctx, Locale::ZhHant);
+            });
+        }
+        assert_eq!(browser.thumbs.len(), 6);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn real_images_upload_small_textures() {
+        let dir = temp_dir("thumb-textures");
+        let image = image::RgbaImage::from_fn(200, 100, |x, y| {
+            image::Rgba([(x % 256) as u8, (y % 256) as u8, 90, 255])
+        });
+        image.save(dir.join("photo.png")).expect("save test image");
+        let ctx = egui::Context::default();
+        let mut browser = Browser::new(Some(dir.clone()));
+        let input = frame_input();
+        let _ = ctx.run(input.clone(), |ctx| {
+            browser.show(ctx, Locale::ZhHant);
+        });
+        let key = browser
+            .entries
+            .iter()
+            .find(|e| !e.is_dir)
+            .map(ThumbKey::for_entry)
+            .expect("image entry");
+        match browser.thumbs.lookup(&key) {
+            Some(Some(texture)) => {
+                let [w, h] = texture.size();
+                assert!(w <= THUMB_DECODE as usize && h <= THUMB_DECODE as usize);
+                assert_eq!(w, h, "thumbnails are square (object-fit: cover)");
+                assert!(w >= 16, "thumbnail too small: {w}");
+            }
+            other => panic!("expected an uploaded thumbnail, got {:?}", other.is_some()),
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn arrow_keys_move_the_selection() {
+        let dir = temp_dir("keys");
+        std::fs::create_dir_all(dir.join("sub")).expect("sub");
+        std::fs::write(dir.join("a.png"), b"x").expect("img");
+        let ctx = egui::Context::default();
+        let mut browser = Browser::new(Some(dir.clone()));
+        let mut input = frame_input();
+        let _ = ctx.run(input.clone(), |ctx| {
+            browser.show(ctx, Locale::ZhHant);
+        });
+        // The path field grabs focus on open (like the web modal); focus the list
+        // before arrow keys should navigate.
+        ctx.memory_mut(|m| m.surrender_focus(Id::new(PATH_INPUT)));
+        input.events = vec![key_event(egui::Key::ArrowDown)];
+        let _ = ctx.run(input.clone(), |ctx| {
+            browser.show(ctx, Locale::ZhHant);
+        });
+        assert_eq!(
+            browser.selected.as_deref(),
+            Some(dir.join("sub").as_path()),
+            "first row (folder) should be selected"
+        );
+        input.events = vec![key_event(egui::Key::End)];
+        let _ = ctx.run(input.clone(), |ctx| {
+            browser.show(ctx, Locale::ZhHant);
+        });
+        assert_eq!(
+            browser.selected.as_deref(),
+            Some(dir.join("a.png").as_path()),
+            "End selects the last row"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn selected_row_scrolls_into_view() {
+        let dir = temp_dir("scroll");
+        for i in 0..48 {
+            std::fs::write(dir.join(format!("img{i:02}.png")), b"x").expect("img");
+        }
+        let ctx = egui::Context::default();
+        let mut browser = Browser::new(Some(dir.clone()));
+        let mut input = frame_input();
+        let _ = ctx.run(input.clone(), |ctx| {
+            browser.show(ctx, Locale::ZhHant);
+        });
+        assert!(browser.last_scroll_offset.y.abs() < 0.5, "list starts at the top");
+        ctx.memory_mut(|m| m.surrender_focus(Id::new(PATH_INPUT)));
+        input.events = vec![key_event(egui::Key::End)];
+        // A few frames: the smooth scroll target needs to settle.
+        for _ in 0..6 {
+            let _ = ctx.run(input.clone(), |ctx| {
+                browser.show(ctx, Locale::ZhHant);
+            });
+            input.events.clear();
+        }
+        assert!(
+            browser.last_scroll_offset.y > 100.0,
+            "selecting the last row must scroll the list (offset {:?})",
+            browser.last_scroll_offset
+        );
+        // The last image row is selected and it is inside the list viewport:
+        // the list height is bounded, so a large offset means it is visible.
+        assert_eq!(
+            browser.selected.as_deref(),
+            Some(dir.join("img47.png").as_path())
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

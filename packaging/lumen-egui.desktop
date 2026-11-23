@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=Lumen (egui)
+GenericName=Image Viewer
+Name[zh_TW]=Lumen（egui 版）
+Comment=Lightweight image viewer & annotator (Rust + wgpu + egui build)
+Comment[zh_TW]=輕量圖片檢視與標註工具（Rust + wgpu + egui 版）
+Exec=@BIN@ %U
+Icon=@ICON@
+Terminal=false
+Categories=Graphics;Photography;Viewer;
+MimeType=image/jpeg;image/png;image/webp;image/gif;image/bmp;image/tiff;image/avif;image/svg+xml;image/x-icon;
+StartupNotify=true

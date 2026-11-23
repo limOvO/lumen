@@ -419,7 +419,7 @@ fn paint_button_base(
         painter.rect_stroke(
             rect,
             radius,
-            Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(255, 92, 92, 120)),
+            Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(255, 92, 92, 40)),
             StrokeKind::Inside,
         );
     }

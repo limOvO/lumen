@@ -17,7 +17,6 @@ use ab_glyph::{Font, FontRef, OutlineCurve, Point as GlyphPoint, ScaleFont};
 use egui::Pos2;
 use image::codecs::jpeg::JpegEncoder;
 use image::codecs::png::PngEncoder;
-use image::codecs::webp::WebPEncoder;
 use image::imageops::FilterType;
 use image::{ExtendedColorType, ImageEncoder, RgbaImage};
 use tiny_skia::{
@@ -30,7 +29,9 @@ use crate::doc::Doc;
 use crate::state::{OutputFormat, OutputSettings};
 
 // Noto Sans CJK subsets shared with the egui font setup (src/fonts.rs).
-use crate::fonts::{CJK_SC, CJK_TC};
+// The Bold (weight 600) pair is export-only: the web canvas renders annotation
+// text with `font-weight: 600`, while the egui screen keeps the regular face.
+use crate::fonts::{CJK_SC, CJK_SC_BOLD, CJK_TC, CJK_TC_BOLD};
 
 pub struct Flattened {
     pub image: RgbaImage,
@@ -336,8 +337,11 @@ fn draw_ellipse(pix: &mut Pixmap, obj: &Annot, tf: Transform) {
 
 // --- text ------------------------------------------------------------------
 
-/// The two embedded UI subsets (same files `fonts.rs` installs into egui).
+/// Embedded subsets (same files `fonts.rs` installs into egui): the Bold pair
+/// carries `font-weight: 600` for export, the Regular pair is the fallback.
 struct FontSet {
+    tc_bold: FontRef<'static>,
+    sc_bold: FontRef<'static>,
     tc: FontRef<'static>,
     sc: FontRef<'static>,
 }
@@ -346,42 +350,56 @@ fn fonts() -> Option<&'static FontSet> {
     static FONTS: OnceLock<Option<FontSet>> = OnceLock::new();
     FONTS
         .get_or_init(|| {
+            let tc_bold = FontRef::try_from_slice(CJK_TC_BOLD).ok()?;
+            let sc_bold = FontRef::try_from_slice(CJK_SC_BOLD).ok()?;
             let tc = FontRef::try_from_slice(CJK_TC).ok()?;
             let sc = FontRef::try_from_slice(CJK_SC).ok()?;
-            Some(FontSet { tc, sc })
+            Some(FontSet { tc_bold, sc_bold, tc, sc })
         })
         .as_ref()
 }
 
-/// Annotation text is free-form, so characters outside the UI subset fall back
-/// to the system Noto Sans CJK collection (same family the app renders in the
-/// TextEdit). Loaded lazily and only when a glyph is actually missing; the
-/// export still works without it (missing glyphs advance half an em).
-const SYSTEM_TTC: &str = "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc";
+/// Annotation text is free-form, so characters outside the UI subsets fall back
+/// to the system Noto Sans CJK collection (the Bold face first, so the exported
+/// weight stays 600). Loaded lazily and only when a glyph is missing; export
+/// still works without it (missing glyphs advance half an em).
+const SYSTEM_TTC_BOLD: &str = "/usr/share/fonts/noto-cjk/NotoSansCJK-Bold.ttc";
+const SYSTEM_TTC_REGULAR: &str = "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc";
 const SYSTEM_TTC_TC_INDEX: u32 = 3; // Noto Sans CJK TC inside the collection
 
-fn full_font() -> Option<&'static FontRef<'static>> {
-    static FULL: OnceLock<Option<FontRef<'static>>> = OnceLock::new();
-    FULL.get_or_init(|| {
-        let bytes = std::fs::read(SYSTEM_TTC).ok()?;
-        let leaked: &'static [u8] = Box::leak(bytes.into_boxed_slice());
-        FontRef::try_from_slice_and_index(leaked, SYSTEM_TTC_TC_INDEX).ok()
-    })
-    .as_ref()
+fn system_face(path: &'static str) -> Option<FontRef<'static>> {
+    let bytes = std::fs::read(path).ok()?;
+    let leaked: &'static [u8] = Box::leak(bytes.into_boxed_slice());
+    FontRef::try_from_slice_and_index(leaked, SYSTEM_TTC_TC_INDEX).ok()
 }
 
-/// First font that has a glyph for `ch` (UI subsets, then the system family).
-fn glyph_for(ch: char) -> Option<(&'static FontRef<'static>, ab_glyph::GlyphId)> {
+fn full_font(bold: bool) -> Option<&'static FontRef<'static>> {
+    static BOLD: OnceLock<Option<FontRef<'static>>> = OnceLock::new();
+    static REGULAR: OnceLock<Option<FontRef<'static>>> = OnceLock::new();
+    let (path, slot) = if bold {
+        (SYSTEM_TTC_BOLD, &BOLD)
+    } else {
+        (SYSTEM_TTC_REGULAR, &REGULAR)
+    };
+    slot.get_or_init(|| system_face(path)).as_ref()
+}
+
+/// First font that has a glyph for `ch` at the requested weight: embedded
+/// subsets first, then the system family.
+fn glyph_for(ch: char, bold: bool) -> Option<(&'static FontRef<'static>, ab_glyph::GlyphId)> {
     let set = fonts()?;
-    let id = set.tc.glyph_id(ch);
-    if id.0 != 0 {
-        return Some((&set.tc, id));
+    let candidates = if bold {
+        [&set.tc_bold, &set.sc_bold, &set.tc, &set.sc]
+    } else {
+        [&set.tc, &set.sc, &set.tc, &set.sc]
+    };
+    for font in candidates {
+        let id = font.glyph_id(ch);
+        if id.0 != 0 {
+            return Some((font, id));
+        }
     }
-    let id = set.sc.glyph_id(ch);
-    if id.0 != 0 {
-        return Some((&set.sc, id));
-    }
-    let full = full_font()?;
+    let full = full_font(bold)?;
     let id = full.glyph_id(ch);
     if id.0 != 0 {
         return Some((full, id));
@@ -439,6 +457,12 @@ fn append_outline(
 }
 
 fn draw_text(pix: &mut Pixmap, obj: &Annot, tf: Transform) {
+    draw_text_weighted(pix, obj, tf, true);
+}
+
+/// `weight_600` picks the Bold subset (what the web canvas renders) or the
+/// Regular one; tests use the toggle to prove the exported text is heavier.
+fn draw_text_weighted(pix: &mut Pixmap, obj: &Annot, tf: Transform, weight_600: bool) {
     if obj.text.is_empty() {
         return;
     }
@@ -447,14 +471,15 @@ fn draw_text(pix: &mut Pixmap, obj: &Annot, tf: Transform) {
     let size = obj.style.font_size.max(1.0);
     let paint = solid(color_rgba8(obj.style.color, obj.style.opacity));
     // Canvas textBaseline = 'top': the first line's baseline sits one ascent down.
-    let mut baseline = origin.y + set.tc.as_scaled(size).ascent();
+    let metrics = if weight_600 { &set.tc_bold } else { &set.tc };
+    let mut baseline = origin.y + metrics.as_scaled(size).ascent();
     let line_height = size * 1.28; // annotate.js measureText lineHeight
     for line in obj.text.split('\n') {
         let mut b = PathBuilder::new();
         let mut pen = origin.x;
         let mut prev: Option<ab_glyph::GlyphId> = None;
         for ch in line.chars() {
-            let Some((font, gid)) = glyph_for(ch) else {
+            let Some((font, gid)) = glyph_for(ch, weight_600) else {
                 // No font on this host covers the character: advance half an em.
                 pen += size * 0.5;
                 prev = None;
@@ -622,11 +647,21 @@ fn white_backed_rgb(image: &RgbaImage) -> Vec<u8> {
     out
 }
 
-/// Encode the flattened image. JPEG honours `quality` (0-100, clamped),
-/// PNG and WebP are lossless here (the `image` crate has no lossy WebP
-/// encoder, so quality is ignored for those two formats).
+/// Encode the flattened image. JPEG and WebP honour `quality` (0-100,
+/// clamped); PNG is lossless and ignores it.
 pub fn encode(image: &RgbaImage, format: OutputFormat, quality: u8) -> Vec<u8> {
     try_encode(image, format, quality).unwrap_or_default()
+}
+
+/// Lossy WebP through libwebp (`webp` crate). Alpha is kept in the ALPH chunk
+/// (libwebp `alpha_compression`), matching what the web canvas produces.
+fn encode_webp_lossy(image: &RgbaImage, quality: u8) -> Result<Vec<u8>, String> {
+    let q = quality.clamp(1, 100) as f32;
+    let encoder = webp::Encoder::from_rgba(image.as_raw(), image.width(), image.height());
+    let memory = encoder
+        .encode_simple(false, q)
+        .map_err(|e| format!("WEBP 編碼失敗：{e:?}"))?;
+    Ok(memory.to_vec())
 }
 
 pub fn try_encode(
@@ -657,9 +692,7 @@ pub fn try_encode(
                 .map_err(|e| format!("PNG 編碼失敗：{e}"))?;
         }
         OutputFormat::Webp => {
-            WebPEncoder::new_lossless(&mut out)
-                .write_image(image.as_raw(), w, h, ExtendedColorType::Rgba8)
-                .map_err(|e| format!("WEBP 編碼失敗：{e}"))?;
+            out = encode_webp_lossy(image, quality)?;
         }
     }
     Ok(out)
@@ -667,6 +700,7 @@ pub fn try_encode(
 
 /// Binary-search the highest quality whose payload still fits `target_kb`
 /// (export.js `encodeToTarget`): 8 probes, stop once the bracket is < 0.02.
+/// Applies to JPEG and lossy WebP; PNG gets a single lossless encode.
 /// Returns the smallest candidate when even the lowest quality overflows.
 pub fn encode_to_target_with_quality(
     image: &RgbaImage,
@@ -675,8 +709,11 @@ pub fn encode_to_target_with_quality(
 ) -> (Vec<u8>, u8) {
     let target = (target_kb as usize).saturating_mul(1024).max(1024);
     let first = encode(image, format, 90);
-    // Only JPEG can trade quality for size; PNG/WebP are lossless, so one probe.
-    if !matches!(format, OutputFormat::Jpeg) || first.len() <= target || first.is_empty() {
+    // JPEG and lossy WebP trade quality for size; PNG is lossless (one probe).
+    if !matches!(format, OutputFormat::Jpeg | OutputFormat::Webp)
+        || first.len() <= target
+        || first.is_empty()
+    {
         return (first, 90);
     }
     let mut lo = 0.1f32;
@@ -945,6 +982,37 @@ mod tests {
     }
 
     #[test]
+    fn export_text_uses_the_weight_600_face() {
+        // The web canvas draws annotation text with font-weight 600; the export
+        // must use the Bold subset, not the Regular one.
+        let Some(_set) = fonts() else { return };
+
+        fn ink(weight_600: bool) -> usize {
+            let mut pix = tiny_skia::Pixmap::new(320, 140).expect("pixmap");
+            let mut annot = Annot::new(
+                AnnotKind::Text,
+                vec![Pos2::new(8.0, 8.0)],
+                Style {
+                    color: egui::Color32::from_rgb(0, 0, 0),
+                    font_size: 44.0,
+                    ..Default::default()
+                },
+            );
+            annot.text = "圖片 Lumen".to_string();
+            draw_text_weighted(&mut pix, &annot, Transform::identity(), weight_600);
+            pix.pixels().iter().map(|p| p.alpha() as usize).sum()
+        }
+
+        let bold = ink(true);
+        let regular = ink(false);
+        assert!(bold > 0 && regular > 0, "text failed to rasterise");
+        assert!(
+            bold as f32 > regular as f32 * 1.06,
+            "export text is not weight 600: bold ink {bold} vs regular {regular}"
+        );
+    }
+
+    #[test]
     fn text_falls_back_to_the_system_cjk_font() {
         // The UI subsets only carry the ~390 dictionary characters, so free-form
         // annotation text relies on the lazily loaded system Noto Sans CJK.
@@ -953,10 +1021,13 @@ mod tests {
         if set.tc.glyph_id(ch).0 != 0 || set.sc.glyph_id(ch).0 != 0 {
             return; // subset happens to cover it: fallback not exercised here
         }
-        if full_font().is_none() {
+        if full_font(true).is_none() {
             return; // host without /usr/share/fonts/noto-cjk: nothing to assert
         }
-        assert!(glyph_for(ch).is_some(), "system fallback font did not provide '測'");
+        assert!(
+            glyph_for(ch, true).is_some(),
+            "system fallback font did not provide '測'"
+        );
         let base = solid_image(260, 120, [255, 255, 255, 255]);
         let mut annot = Annot::new(
             AnnotKind::Text,
@@ -1012,14 +1083,120 @@ mod tests {
     }
 
     #[test]
-    fn webp_output_round_trips() {
+    fn webp_output_is_lossy_and_round_trips() {
         let img = gradient_image(64, 48);
         let bytes = try_encode(&img, OutputFormat::Webp, 90).expect("webp encode");
         assert!(bytes.len() > 12);
         assert_eq!(&bytes[..4], b"RIFF");
         assert_eq!(&bytes[8..12], b"WEBP");
-        let decoded = image::load_from_memory(&bytes).expect("decode webp").to_rgba8();
+        // Lossy -> "VP8 " (or "VP8X" when alpha is present), never "VP8L".
+        let chunk = &bytes[12..16];
+        assert!(
+            chunk == b"VP8 " || chunk == b"VP8X",
+            "expected lossy WEBP chunk, got {chunk:?}"
+        );
+        let decoded = image::load_from_memory(&bytes)
+            .expect("decode lossy webp")
+            .to_rgba8();
         assert_eq!(decoded.dimensions(), (64, 48));
+
+        // Quality must actually change the payload size (i.e. it is lossy).
+        let low = try_encode(&img, OutputFormat::Webp, 10).expect("webp q10");
+        let high = try_encode(&img, OutputFormat::Webp, 95).expect("webp q95");
+        assert!(
+            high.len() > low.len(),
+            "webp quality has no effect: q95 {} vs q10 {}",
+            high.len(),
+            low.len()
+        );
+    }
+
+    #[test]
+    fn webp_keeps_alpha() {
+        let mut img = RgbaImage::from_pixel(48, 40, Rgba([200, 40, 40, 255]));
+        for x in 0..24 {
+            for y in 0..40 {
+                img.put_pixel(x, y, Rgba([200, 40, 40, 0]));
+            }
+        }
+        let bytes = try_encode(&img, OutputFormat::Webp, 90).expect("webp alpha");
+        let decoded = image::load_from_memory(&bytes)
+            .expect("decode webp alpha")
+            .to_rgba8();
+        assert!(decoded.get_pixel(4, 20)[3] < 16, "transparent area lost its alpha");
+        assert!(decoded.get_pixel(40, 20)[3] > 240, "opaque area lost its alpha");
+    }
+
+    /// Deterministic pseudo-random detail: fine-grained noise that compresses
+    /// like a busy photograph (lossy WebP at q95 ≈ 600 KB at 1200x900).
+    fn noise_image(w: u32, h: u32) -> RgbaImage {
+        RgbaImage::from_fn(w, h, |x, y| {
+            let base_r = (x * 255 / w.max(1)) as i32;
+            let base_g = (y * 255 / h.max(1)) as i32;
+            let base_b = ((x + y) * 255 / (w + h).max(1)) as i32;
+            let mut v = x
+                .wrapping_mul(1_103_515_245)
+                .wrapping_add(y.wrapping_mul(12_345));
+            v ^= v >> 13;
+            v = v.wrapping_mul(2_654_435_761);
+            let n = ((v >> 16) & 0x3F) as i32 - 32; // +-32 of detail
+            Rgba([
+                (base_r + n).clamp(0, 255) as u8,
+                (base_g + n).clamp(0, 255) as u8,
+                (base_b + n).clamp(0, 255) as u8,
+                255,
+            ])
+        })
+    }
+
+    #[test]
+    fn webp_encode_to_target_fits_300kb() {
+        let img = noise_image(1200, 900);
+        let high = try_encode(&img, OutputFormat::Webp, 95).expect("webp q95");
+        assert!(
+            high.len() > 300 * 1024,
+            "test fixture too compressible at q95 ({} bytes), cannot exercise the target",
+            high.len()
+        );
+        let (bytes, quality) = encode_to_target_with_quality(&img, OutputFormat::Webp, 300);
+        assert!(
+            bytes.len() <= 300 * 1024,
+            "webp payload {} > target {} bytes (quality {quality})",
+            bytes.len(),
+            300 * 1024
+        );
+        assert_eq!(&bytes[..4], b"RIFF");
+        assert!((1..=100).contains(&quality));
+        // and the result still decodes
+        let decoded = image::load_from_memory(&bytes).expect("decode target webp");
+        assert_eq!((decoded.width(), decoded.height()), (1200, 900));
+    }
+
+    #[test]
+    fn webp_target_unreachable_returns_the_smallest_fallback() {
+        // Pure noise cannot reach 300 KB at any probed quality: the contract is
+        // the same as the web build (and JPEG) — return the smallest candidate,
+        // never panic, and stay below the q90 probe.
+        let img = RgbaImage::from_fn(1600, 1200, |x, y| {
+            let mut v = x
+                .wrapping_mul(1_103_515_245)
+                .wrapping_add(y.wrapping_mul(12_345));
+            v ^= v >> 13;
+            v = v.wrapping_mul(2_654_435_761);
+            Rgba([
+                (v & 0xFF) as u8,
+                ((v >> 8) & 0xFF) as u8,
+                ((v >> 16) & 0xFF) as u8,
+                255,
+            ])
+        });
+        let q90 = try_encode(&img, OutputFormat::Webp, 90).expect("q90");
+        assert!(q90.len() > 300 * 1024);
+        let (bytes, quality) = encode_to_target_with_quality(&img, OutputFormat::Webp, 300);
+        assert!(!bytes.is_empty());
+        assert_eq!(&bytes[..4], b"RIFF");
+        assert!(bytes.len() <= q90.len(), "should return the smallest candidate");
+        assert!((1..=100).contains(&quality));
     }
 
     #[test]

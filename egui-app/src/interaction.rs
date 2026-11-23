@@ -1123,7 +1123,17 @@ fn edit_text_overlay(
     let ctx = ui.ctx().clone();
     let hint = state.locale.tr("文字");
     let esc = ctx.input(|i| i.key_pressed(Key::Escape));
-    let commit_keys = ctx.input(|i| i.modifiers.command && i.key_pressed(Key::Enter));
+    // Read the chord from the Key event (X11 can deliver the modifier state in
+    // a different frame than the key press, which made Ctrl+Enter flaky).
+    let commit_keys = ctx.input(|i| {
+        i.events.iter().any(|e| {
+            matches!(
+                e,
+                egui::Event::Key { key: Key::Enter, pressed: true, modifiers, .. }
+                    if modifiers.command
+            )
+        })
+    });
     let pressed = ctx.input(|i| i.pointer.primary_pressed());
     let pointer = ctx.input(|i| i.pointer.interact_pos());
 
