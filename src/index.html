@@ -1,0 +1,615 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Lumen</title>
+  <!-- Critical inline styles: the first paint is already dark, so the OS/WebView
+       never flashes white before the app CSS loads. -->
+  <style>
+    html,
+    body {
+      background: #101012;
+      color: #f9fafb;
+    }
+    body {
+      margin: 0;
+      overflow: hidden;
+    }
+    body.booting #app {
+      visibility: hidden;
+    }
+    #boot {
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      display: grid;
+      place-items: center;
+      background: #101012;
+      transition: opacity 0.22s ease, visibility 0s linear 0.22s;
+    }
+    body.ready #boot {
+      opacity: 0;
+      visibility: hidden;
+    }
+    .boot-inner {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+    }
+    .boot-mark {
+      color: #f9fafb;
+      opacity: 0.9;
+    }
+    .boot-word {
+      font: 600 10.5px/1 system-ui, sans-serif;
+      letter-spacing: 0.34em;
+      color: #9ca3af;
+      text-indent: 0.34em;
+    }
+    .boot-bar {
+      width: 112px;
+      height: 2px;
+      border-radius: 2px;
+      background: rgba(255, 255, 255, 0.12);
+      overflow: hidden;
+    }
+    .boot-bar span {
+      display: block;
+      width: 38%;
+      height: 100%;
+      border-radius: 2px;
+      background: #f9fafb;
+      animation: bootslide 1.15s ease-in-out infinite;
+    }
+    @keyframes bootslide {
+      0% {
+        transform: translateX(-120%);
+      }
+      100% {
+        transform: translateX(320%);
+      }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .boot-bar span {
+        animation: none;
+        width: 100%;
+        opacity: 0.4;
+      }
+    }
+  </style>
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body class="booting filmstrip-empty">
+  <div id="boot" aria-hidden="true">
+    <div class="boot-inner">
+      <svg class="boot-mark" width="44" height="44" viewBox="0 0 512 512" fill="none" aria-hidden="true">
+        <rect x="6" y="6" width="500" height="500" rx="108" fill="#232324" stroke="rgba(255,255,255,.14)" stroke-width="4"/>
+        <circle cx="256" cy="240" r="120" stroke="#ffb457" stroke-width="26"/>
+        <circle cx="256" cy="240" r="94" stroke="#ff5c5c" stroke-width="16"/>
+        <rect x="150" y="360" width="212" height="30" rx="15" fill="#f9fafb" opacity=".9"/>
+      </svg>
+      <div class="boot-word">LUMEN</div>
+      <div class="boot-bar"><span></span></div>
+    </div>
+  </div>
+
+  <div id="app">
+    <!-- ============================ 頂欄 ============================ -->
+    <!-- ============================= 頂欄 ============================= -->
+    <header id="topbar">
+      <div class="tb-left">
+        <span class="tb-brand" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3.5" y="4.5" width="17" height="15" rx="3"></rect>
+            <circle cx="9" cy="10" r="1.7"></circle>
+            <path d="M4.5 17.5 9.5 13l3.4 3.1 3-2.4 3.6 3.3"></path>
+          </svg>
+        </span>
+        <div class="tb-file">
+          <span id="file-name" title="目前檔案">未開啟圖片</span>
+          <span id="dirty-dot" class="dirty-dot" hidden aria-label="有未儲存的變更" title="有未儲存的變更"></span>
+        </div>
+        <span id="save-status" class="save-status" role="status" aria-live="polite" data-s="idle" title="儲存狀態">
+          <span class="ss-ind" aria-hidden="true">
+            <span class="ss-dot"></span>
+            <span class="ss-spinner"></span>
+            <svg class="ss-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5.5 12.5l4.2 4.1 8.8-9.6"></path></svg>
+          </span>
+          <span id="save-status-text">無變更</span>
+        </span>
+      </div>
+
+      <div class="tb-right">
+        <button id="btn-preview" class="tb-btn" type="button" title="回到預覽" disabled>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2.6 12S6 6.4 12 6.4 21.4 12 21.4 12 18 17.6 12 17.6 2.6 12 2.6 12z"></path><circle cx="12" cy="12" r="2.6"></circle></svg>
+          <span>預覽</span>
+        </button>
+        <button id="btn-compare" class="tb-btn tb-compare" type="button" aria-pressed="false" title="比較原圖（切換）" disabled>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2.6 12S6 6.4 12 6.4 21.4 12 21.4 12 18 17.6 12 17.6 2.6 12 2.6 12z"></path><circle cx="12" cy="12" r="2.6"></circle></svg>
+          <span>比較</span>
+        </button>
+
+        <span class="tb-sep" aria-hidden="true"></span>
+
+        <div class="tb-group" role="group" aria-label="檔案">
+          <button id="btn-open" class="tb-btn" type="button" title="開啟檔案（Ctrl+O）">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 7.5A1.7 1.7 0 0 1 5.2 5.8h3.6l2 2.1h7.5a1.7 1.7 0 0 1 1.7 1.7v7a1.7 1.7 0 0 1-1.7 1.7H5.2a1.7 1.7 0 0 1-1.7-1.7z"></path></svg>
+            <span>開啟</span>
+          </button>
+          <button id="btn-save" class="tb-btn tb-primary" type="button" title="儲存（Ctrl+S）" disabled>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 5.6A1.6 1.6 0 0 1 6.1 4h9.5l3.9 3.9v10.5a1.6 1.6 0 0 1-1.6 1.6H6.1a1.6 1.6 0 0 1-1.6-1.6z"></path><path d="M8 4v5.2h7V4"></path><path d="M8 20v-5.4h8V20"></path></svg>
+            <span>儲存</span>
+          </button>
+          <button id="btn-saveas" class="tb-btn" type="button" title="另存新檔（Ctrl+Shift+S）" disabled>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 5.6A1.6 1.6 0 0 1 6.1 4h7.4l3.4 3.4"></path><path d="M11 20H6.1a1.6 1.6 0 0 1-1.6-1.6v-10"></path><path d="M13.6 20h2.9"></path><path d="m17.2 10.4 1.3 1.3a1.5 1.5 0 0 1 0 2.1l-5.6 5.6-2.7.7.7-2.7 5.6-5.6a1.5 1.5 0 0 1 2.1 0z"></path></svg>
+            <span>另存</span>
+          </button>
+        </div>
+
+        <span class="tb-sep" aria-hidden="true"></span>
+
+        <div class="tb-group" role="group" aria-label="編輯">
+          <button id="btn-undo" class="tb-btn tb-icon" type="button" aria-label="復原（Ctrl+Z）" title="復原（Ctrl+Z）" disabled>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6 4.5 10.4 9 14.8"></path><path d="M4.8 10.4h8.4a5.4 5.4 0 0 1 0 10.8H10"></path></svg>
+          </button>
+          <button id="btn-redo" class="tb-btn tb-icon" type="button" aria-label="重做（Ctrl+Shift+Z）" title="重做（Ctrl+Shift+Z）" disabled>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="m15 6 4.5 4.4L15 14.8"></path><path d="M19.2 10.4h-8.4a5.4 5.4 0 0 0 0 10.8H14"></path></svg>
+          </button>
+        </div>
+
+        <span class="tb-sep" aria-hidden="true"></span>
+
+        <button id="btn-insp-collapse" class="tb-btn tb-icon" type="button" aria-label="收合屬性面板" aria-expanded="true" aria-controls="inspector" title="收合屬性面板">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"></rect><path d="M14.5 4.5v15"></path></svg>
+        </button>
+        <button id="btn-shortcuts" class="tb-btn tb-icon" type="button" aria-label="快捷鍵說明（?）" title="快捷鍵說明（?）">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.4"></circle><path d="M9.6 9.4a2.5 2.5 0 1 1 3.6 2.3c-.7.4-1.2.9-1.2 1.7v.4"></path><path d="M12 16.9h.01"></path></svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- ========================== 左側工具列 ========================== -->
+    <nav id="toolrail" role="toolbar" aria-orientation="vertical" aria-label="工具列">
+      <button id="t-move" class="rail-btn" type="button" data-tool="move" data-tip="移動／平移" data-key="V" aria-label="移動工具（V）" aria-pressed="true">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5v17M3.5 12h17"></path><path d="m9 6 3-2.5L15 6M9 18l3 2.5L15 18M6 9l-2.5 3L6 15M18 9l2.5 3L18 15"></path></svg>
+      </button>
+      <button id="t-brush" class="rail-btn" type="button" data-tool="brush" data-tip="畫筆" data-key="B" aria-label="畫筆工具（B）" aria-pressed="false">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9.4 14.9c-1.5 0-2.8 1.2-2.8 2.7 0 1.3-1 2.3-2.6 2.7 1.1 1 2.5 1.6 4 1.6 2.7 0 4.8-2 4.8-4.5 0-1.4-1.2-2.5-2.8-2.5z"/><path d="M12.6 15.6 20 6.2a1.7 1.7 0 0 0-2.7-2.1L7.7 13.7"/></svg>
+      </button>
+      <button id="t-rect" class="rail-btn" type="button" data-tool="rect" data-tip="矩形" data-key="R" aria-label="矩形工具（R）" aria-pressed="false">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5.5" width="16" height="13" rx="1.6"></rect></svg>
+      </button>
+      <button id="t-ellipse" class="rail-btn" type="button" data-tool="ellipse" data-tip="圓框" data-key="O" aria-label="圓框工具（O）" aria-pressed="false">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="12" rx="8" ry="6.2"></ellipse></svg>
+      </button>
+      <button id="t-arrow" class="rail-btn" type="button" data-tool="arrow" data-tip="箭頭（點兩下：起點 → 終點）" data-key="A" aria-label="箭頭工具（A）：點一下設起點，再點一下設終點" aria-pressed="false">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 19.5 19 5"></path><path d="M11.5 5H19v7.5"></path></svg>
+      </button>
+      <button id="t-line" class="rail-btn" type="button" data-tool="line" data-tip="直線（點兩下：起點 → 終點）" data-key="L" aria-label="直線工具（L）：點一下設起點，再點一下設終點" aria-pressed="false">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 19 19 5"></path></svg>
+      </button>
+      <button id="t-text" class="rail-btn" type="button" data-tool="text" data-tip="文字" data-key="T" aria-label="文字工具（T）" aria-pressed="false">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 5.5h13"></path><path d="M12 5.5v13"></path><path d="M8.5 18.5h7"></path></svg>
+      </button>
+      <span class="rail-sep" aria-hidden="true"></span>
+      <button id="t-crop" class="rail-btn" type="button" data-tool="crop" data-tip="裁切" data-key="C" aria-label="裁切工具（C）" aria-pressed="false">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3.5v13.5h13.5"></path><path d="M3.5 7H17v13.5"></path></svg>
+      </button>
+    </nav>
+
+    <!-- =========================== 畫布區 =========================== -->
+    <main id="canvas-area">
+      <div id="checker" aria-hidden="true" hidden></div>
+
+      <div id="stage">
+        <canvas id="board"></canvas>
+        <canvas id="overlay" aria-hidden="true"></canvas>
+      </div>
+
+      <div id="empty-state">
+        <div class="empty-card">
+          <span class="empty-icon" aria-hidden="true">
+            <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="15" rx="3"></rect><circle cx="8.5" cy="9.5" r="1.6"></circle><path d="m4.5 17 5-4.6 3.4 3 3-2.3L19.5 17"></path></svg>
+          </span>
+          <h1>拖放圖片到這裡</h1>
+          <p>或從資料夾開啟圖片。支援 JPEG、PNG、WebP、GIF、SVG。</p>
+          <div class="empty-actions">
+            <button id="empty-open" class="btn btn-primary" type="button">開啟圖片…</button>
+            <button id="empty-shortcuts" class="btn btn-ghost" type="button">查看快捷鍵</button>
+          </div>
+          <p class="empty-hint"><kbd>Ctrl</kbd><span class="key-plus">+</span><kbd>O</kbd> 開啟 · 也可以直接拖放檔案</p>
+        </div>
+      </div>
+
+      <div id="busy-indicator" class="busy-indicator" hidden role="status" aria-live="polite">
+        <span class="spinner" aria-hidden="true"></span>
+        <span>處理中…</span>
+      </div>
+
+      <div id="zoom-hud" role="group" aria-label="縮放控制">
+        <button id="zoom-in" class="hud-btn" type="button" aria-label="放大（+）" title="放大（+）">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"><path d="M5 12h14M12 5v14"></path></svg>
+        </button>
+        <button id="zoom-label" class="hud-btn hud-value" type="button" aria-label="目前縮放比例，點擊適應視窗" title="點擊適應視窗（0）">100%</button>
+        <button id="zoom-out" class="hud-btn" type="button" aria-label="縮小（-）" title="縮小（-）">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"><path d="M5 12h14"></path></svg>
+        </button>
+        <span class="hud-sep" aria-hidden="true"></span>
+        <button id="zoom-fit" class="hud-btn" type="button" aria-label="適應視窗" title="適應視窗（0）">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4.5H4.5V9M15 4.5h4.5V9M9 19.5H4.5V15M15 19.5h4.5V15"></path></svg>
+        </button>
+      </div>
+
+      <div id="textEditor" contenteditable="true" role="textbox" aria-label="註解文字" aria-multiline="true" spellcheck="false" hidden></div>
+
+      <div id="preview-chrome" role="group" aria-label="預覽控制" aria-hidden="true">
+        <div class="pc-top">
+          <div class="pc-chip pc-caption"><span id="preview-caption">—</span></div>
+          <div class="pc-right">
+            <div class="pc-dock">
+              <span class="pc-counter" id="preview-counter">— / —</span>
+              <span class="pc-sep" aria-hidden="true"></span>
+              <button id="preview-info" class="pc-icon" type="button" aria-pressed="false" aria-label="顯示圖片資訊" title="資訊（I）">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.4"></circle><path d="M12 10.7v5.1"></path><path d="M12 8.1h.01"></path></svg>
+              </button>
+              <button id="preview-edit" class="pc-icon pc-primary" type="button" aria-label="進入編輯" title="進入編輯">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 19.5h4l9.2-9.2a2 2 0 0 0 0-2.8l-1.2-1.2a2 2 0 0 0-2.8 0L4.5 15.5z"></path><path d="M13.7 6.7l3.6 3.6"></path></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <button id="preview-nav-prev" class="pc-nav pc-nav-prev" type="button" aria-label="上一張（←）" title="上一張（←）">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 5.5 8 12l6.5 6.5"></path></svg>
+        </button>
+        <button id="preview-nav-next" class="pc-nav pc-nav-next" type="button" aria-label="下一張（→）" title="下一張（→）">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 5.5 16 12l-6.5 6.5"></path></svg>
+        </button>
+      </div>
+
+      <div id="style-dock" aria-label="標註樣式" hidden>
+      <!-- 標註樣式：工具切換時即時反映 -->
+      <section id="style-panel" aria-label="標註樣式">
+        <button id="style-toggle" class="sp-head" type="button" aria-expanded="true" aria-controls="style-body" tabindex="-1">
+          <span>標註樣式</span>
+          <span id="style-tool-name" class="sp-tool">移動</span>
+          <svg class="sp-chevron" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 4.6 6 7.4l3-2.8"></path></svg>
+        </button>
+
+        <div id="style-body" class="sp-body">
+          <div class="swatches" id="style-colors" role="group" aria-label="標註顏色">
+            <button class="swatch is-active" type="button" data-color="#ff5c5c" style="--sw:#ff5c5c" aria-label="紅色" aria-pressed="true"></button>
+            <button class="swatch" type="button" data-color="#ffb457" style="--sw:#ffb457" aria-label="橘色" aria-pressed="false"></button>
+            <button class="swatch" type="button" data-color="#ffd93d" style="--sw:#ffd93d" aria-label="黃色" aria-pressed="false"></button>
+            <button class="swatch" type="button" data-color="#3ddc97" style="--sw:#3ddc97" aria-label="綠色" aria-pressed="false"></button>
+            <button class="swatch" type="button" data-color="#5b9dff" style="--sw:#5b9dff" aria-label="藍色" aria-pressed="false"></button>
+            <button class="swatch" type="button" data-color="#c084fc" style="--sw:#c084fc" aria-label="紫色" aria-pressed="false"></button>
+            <button class="swatch" type="button" data-color="#ffffff" style="--sw:#ffffff" aria-label="白色" aria-pressed="false"></button>
+            <button class="swatch" type="button" data-color="#14171c" style="--sw:#14171c" aria-label="黑色" aria-pressed="false"></button>
+            <label class="swatch swatch-custom" title="自訂顏色">
+              <input id="style-custom" type="color" value="#ff5c5c" aria-label="自訂標註顏色">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>
+            </label>
+            <button id="style-dashed" class="swatch swatch-toggle" type="button" aria-pressed="false" title="虛線（筆跡／直線／圖案）">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" aria-hidden="true"><path d="M3.5 12h3.6M10.2 12h3.6M16.9 12h3.6"></path></svg>
+            </button>
+          </div>
+
+          <div class="sp-row">
+            <div class="sp-label"><label for="style-size">粗細</label><output id="style-size-out" for="style-size">8</output></div>
+            <input id="style-size" class="range" type="range" min="1" max="64" step="1" value="8">
+          </div>
+          <div class="sp-row">
+            <div class="sp-label"><label for="style-opacity">透明度</label><output id="style-opacity-out" for="style-opacity">100%</output></div>
+            <input id="style-opacity" class="range" type="range" min="5" max="100" step="1" value="100">
+          </div>
+          <div class="sp-row" id="style-font-row" hidden>
+            <div class="sp-label"><label for="style-fontsize">字級</label><output id="style-fontsize-out" for="style-fontsize">36</output></div>
+            <input id="style-fontsize" class="range" type="range" min="10" max="160" step="1" value="36">
+          </div>
+        </div>
+      </section>
+
+      </div>
+    </main>
+
+    <!-- =========================== 右側屬性面板 =========================== -->
+    <aside id="inspector" aria-label="屬性面板">
+      <div id="panel">
+        <div id="panel-tabs" role="tablist" aria-label="面板分頁">
+        <button id="tab-info" class="ptab is-active" type="button" role="tab" aria-selected="true" aria-controls="panel-info" tabindex="0">資訊</button>
+        <button id="tab-adjust" class="ptab" type="button" role="tab" aria-selected="false" aria-controls="panel-adjust" tabindex="-1">調整</button>
+        <button id="tab-crop" class="ptab" type="button" role="tab" aria-selected="false" aria-controls="panel-crop" tabindex="-1">裁切</button>
+      </div>
+
+      <div id="panel-body">
+        <!-- 資訊 -->
+        <section id="panel-info" class="panel-page" role="tabpanel" aria-labelledby="tab-info">
+          <p class="page-empty" id="info-empty">尚未載入圖片</p>
+          <div id="info-content" class="page-content" hidden>
+            <div class="kv"><span class="kv-k">檔名</span><span class="kv-v" id="info-name">—</span></div>
+            <div class="kv"><span class="kv-k">尺寸</span><span class="kv-v mono" id="info-dims">—</span></div>
+            <div class="kv"><span class="kv-k">格式</span><span class="kv-v" id="info-format">—</span></div>
+            <div class="kv"><span class="kv-k">檔案大小</span><span class="kv-v mono" id="info-size">—</span></div>
+            <div class="kv"><span class="kv-k">修改時間</span><span class="kv-v mono" id="info-mtime">—</span></div>
+            <div class="kv"><span class="kv-k">長寬比</span><span class="kv-v mono" id="info-ratio">—</span></div>
+            <div class="kv" id="info-color-row" hidden><span class="kv-k">色彩</span><span class="kv-v" id="info-color">—</span></div>
+
+            <div class="section-head">
+              <span>EXIF</span>
+              <span class="section-note" id="info-exif-count">0 項</span>
+            </div>
+            <div id="info-exif" class="exif-list"></div>
+
+            <button id="info-copy-path" class="btn btn-ghost btn-block" type="button">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="8.5" y="8.5" width="11" height="11" rx="2"></rect><path d="M15.5 8.5v-2a2 2 0 0 0-2-2h-7a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h2"></path></svg>
+              複製檔案路徑
+            </button>
+          </div>
+        </section>
+
+        <!-- 調整 -->
+        <section id="panel-adjust" class="panel-page" role="tabpanel" aria-labelledby="tab-adjust" hidden>
+          <div class="field-group">
+            <span class="field-label">尺寸（像素）</span>
+            <div class="dim-row">
+              <input id="adj-width" class="text-input mono" type="number" inputmode="numeric" min="1" step="1" aria-label="輸出寬度" placeholder="—">
+              <span class="dim-x" aria-hidden="true">×</span>
+              <input id="adj-height" class="text-input mono" type="number" inputmode="numeric" min="1" step="1" aria-label="輸出高度" placeholder="—">
+              <button id="adj-lock" class="lock-btn is-on" type="button" aria-pressed="true" aria-label="鎖定長寬比" title="鎖定長寬比">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="5.5" y="10.5" width="13" height="9" rx="2"></rect><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"></path></svg>
+              </button>
+            </div>
+            <div class="chip-row" id="adj-percents" role="group" aria-label="縮放百分比">
+              <button class="chip" type="button" data-pct="25">25%</button>
+              <button class="chip" type="button" data-pct="50">50%</button>
+              <button class="chip" type="button" data-pct="100">100%</button>
+              <button class="chip" type="button" data-pct="200">200%</button>
+            </div>
+          </div>
+
+          <div class="field-group">
+            <div class="field-head"><label class="field-label" for="adj-maxdim">長邊上限</label><button id="adj-maxdim-clear" class="link-btn" type="button">清除</button></div>
+            <div class="inline-field">
+              <input id="adj-maxdim" class="text-input mono" type="number" inputmode="numeric" min="1" step="1" placeholder="不限制" aria-label="長邊上限像素">
+              <span class="unit">px</span>
+            </div>
+          </div>
+
+          <div class="field-group">
+            <span class="field-label" id="adj-format-label">輸出格式</span>
+            <div id="adj-format" class="select-host" aria-labelledby="adj-format-label"></div>
+          </div>
+
+          <div class="field-group">
+            <div class="field-head"><label class="field-label" for="adj-quality">品質</label><output id="adj-quality-out" class="mono" for="adj-quality">85</output></div>
+            <input id="adj-quality" class="range" type="range" min="1" max="100" step="1" value="85">
+            <p class="field-hint" id="adj-quality-hint" hidden>PNG 為無損格式，不使用品質設定。</p>
+          </div>
+
+          <div class="field-group">
+            <label class="field-label" for="adj-target">目標大小</label>
+            <div class="inline-field">
+              <input id="adj-target" class="text-input mono" type="number" inputmode="numeric" min="1" step="1" placeholder="自動" aria-label="目標檔案大小（KB）">
+              <span class="unit">KB</span>
+            </div>
+            <p class="field-hint" id="adj-target-hint" hidden>已啟用目標大小，將自動調整品質。</p>
+          </div>
+
+          <div class="field-group">
+            <span class="field-label">預估大小</span>
+            <div class="estimate-row">
+              <button id="adj-estimate" class="btn btn-ghost" type="button">估算大小</button>
+              <span id="adj-estimate-out" class="estimate-out" aria-live="polite">—</span>
+            </div>
+          </div>
+
+          <button id="adj-export" class="btn btn-primary btn-block" type="button">匯出…</button>
+          <p class="field-hint">匯出會保留裁切、縮放與所有標註。</p>
+        </section>
+
+        <!-- 裁切 -->
+        <section id="panel-crop" class="panel-page" role="tabpanel" aria-labelledby="tab-crop" hidden>
+          <div class="field-group">
+            <span class="field-label">長寬比</span>
+            <div class="chip-row chip-wrap" id="crop-ratios" role="group" aria-label="裁切長寬比">
+              <button class="chip is-active" type="button" data-ratio="free" aria-pressed="true">自由</button>
+              <button class="chip" type="button" data-ratio="orig" aria-pressed="false">原始</button>
+              <button class="chip" type="button" data-ratio="1:1" aria-pressed="false">1:1</button>
+              <button class="chip" type="button" data-ratio="4:3" aria-pressed="false">4:3</button>
+              <button class="chip" type="button" data-ratio="3:2" aria-pressed="false">3:2</button>
+              <button class="chip" type="button" data-ratio="16:9" aria-pressed="false">16:9</button>
+            </div>
+          </div>
+
+          <div class="crop-readout">
+            <span class="kv-k">目前裁切</span>
+            <strong id="crop-size" class="mono">—</strong>
+          </div>
+
+          <p class="field-hint">在畫布上拖曳建立裁切框，拖動把手調整；按住 Shift 鎖定比例。<kbd class="inline-kbd">Del</kbd> 可清除裁切框。</p>
+
+          <button id="crop-apply" class="btn btn-primary btn-block" type="button">套用裁切</button>
+          <button id="crop-reset" class="btn btn-ghost btn-block" type="button">重設裁切</button>
+        </section>
+        </div>
+      </div>
+    </aside>
+
+    <!-- 0 寬分隔欄：只有把手能拖，視覺線由 ::after 畫在交界上 -->
+    <div id="insp-sep">
+      <span id="insp-grip" role="separator" tabindex="0" aria-orientation="vertical"
+            aria-label="調整屬性面板寬度" aria-valuemin="240" aria-valuemax="420" aria-valuenow="300"></span>
+    </div>
+
+    <!-- =========================== 底片條 =========================== -->
+    <footer id="filmstrip" aria-label="底片條">
+      <button id="film-toggle" class="film-toggle" type="button" aria-expanded="true" aria-label="收合底片條" title="收合底片條">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 14.5 6-6 6 6"></path></svg>
+      </button>
+      <div id="film-items" class="film-items" role="listbox" aria-label="同資料夾圖片"></div>
+      <div class="film-meta"><span id="film-count">0 張</span></div>
+    </footer>
+
+    <!-- =========================== 狀態列 =========================== -->
+    <div id="statusbar" role="contentinfo" aria-label="狀態列">
+      <span id="status-info">—</span>
+      <span id="status-msg" aria-live="polite"></span>
+      <span id="status-right">—</span>
+    </div>
+  </div>
+
+  <!-- ========================== 資料夾瀏覽器 ========================== -->
+  <div id="browser-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="browser-title" hidden>
+    <div class="modal-scrim" data-close></div>
+    <div class="modal-card browser-card">
+      <header class="modal-head">
+        <div class="modal-heading">
+          <h2 id="browser-title">開啟圖片</h2>
+          <p class="modal-sub">雙擊清單中的圖片即可開啟</p>
+        </div>
+        <button class="icon-btn modal-close" type="button" data-close aria-label="關閉">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"></path></svg>
+        </button>
+      </header>
+
+      <div class="browser-nav">
+        <button id="browser-up" class="icon-btn" type="button" aria-label="上層資料夾" title="上層資料夾">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"></path><path d="m6 11 6-6 6 6"></path></svg>
+        </button>
+        <input id="browser-path" class="text-input mono browser-path" type="text" spellcheck="false" autocomplete="off" aria-label="目前路徑">
+        <button id="browser-open" class="btn btn-primary" type="button">開啟</button>
+      </div>
+
+      <div id="browser-list" class="browser-list" role="listbox" tabindex="0" aria-label="圖片清單">
+        <div class="list-state">載入中…</div>
+      </div>
+
+      <footer class="modal-foot browser-foot">
+        <span id="browser-count" class="modal-note">0 張圖片</span>
+      </footer>
+    </div>
+  </div>
+
+  <!-- ============================= 另存 ============================= -->
+  <div id="save-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="save-title" hidden>
+    <div class="modal-scrim" data-close></div>
+    <div class="modal-card save-card">
+      <header class="modal-head">
+        <div class="modal-heading">
+          <h2 id="save-title">另存新檔</h2>
+          <p class="modal-sub" id="save-subtitle">選擇儲存位置與輸出設定</p>
+        </div>
+        <button class="icon-btn modal-close" type="button" data-close aria-label="關閉">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"></path></svg>
+        </button>
+      </header>
+
+      <div id="save-fields" class="save-fields">
+        <label class="field">
+          <span class="field-label">儲存位置</span>
+          <input id="save-dir" class="text-input mono" type="text" spellcheck="false" autocomplete="off">
+        </label>
+        <label class="field">
+          <span class="field-label">檔名</span>
+          <input id="save-name" class="text-input mono" type="text" spellcheck="false" autocomplete="off">
+        </label>
+        <div class="field">
+          <span class="field-label" id="save-format-label">格式</span>
+          <div id="save-format" class="select-host" aria-labelledby="save-format-label"></div>
+        </div>
+        <div class="field field-quality">
+          <div class="field-head"><span class="field-label">品質</span><output id="save-quality-out" class="mono" for="save-quality">85</output></div>
+          <input id="save-quality" class="range" type="range" min="1" max="100" step="1" value="85">
+        </div>
+        <div class="field field-target">
+          <label class="field-label" for="save-target">目標大小</label>
+          <div class="inline-field">
+            <input id="save-target" class="text-input mono" type="number" inputmode="numeric" min="1" step="1" placeholder="自動" aria-label="目標檔案大小（KB）">
+            <span class="unit">KB</span>
+          </div>
+        </div>
+        <div class="field field-estimate">
+          <span class="field-label">預估大小</span>
+          <span id="save-meta" class="save-estimate-value" aria-live="polite">—</span>
+        </div>
+      </div>
+      <p id="save-warn" class="modal-warn" hidden>同名檔案已存在，儲存後將覆寫原檔案。</p>
+
+      <footer class="modal-foot">
+        <button id="save-cancel" class="btn btn-ghost" type="button">取消</button>
+        <button id="save-confirm" class="btn btn-primary" type="button">儲存</button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- =========================== 快捷鍵說明 =========================== -->
+  <div id="shortcuts-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="shortcuts-title" hidden>
+    <div class="modal-scrim" data-close></div>
+    <div class="modal-card shortcuts-card">
+      <header class="modal-head">
+        <div class="modal-heading">
+          <h2 id="shortcuts-title">快捷鍵</h2>
+          <p class="modal-sub">按 ? 開啟 · Esc 關閉</p>
+        </div>
+        <button class="icon-btn modal-close" type="button" data-close aria-label="關閉">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"></path></svg>
+        </button>
+      </header>
+
+      <div class="shortcuts-body">
+        <div class="sc-group">
+          <div class="sc-title">檔案</div>
+          <div class="sc-row"><span class="sc-k">開啟檔案</span><span class="keys"><kbd>Ctrl</kbd><kbd>O</kbd></span></div>
+          <div class="sc-row"><span class="sc-k">儲存</span><span class="keys"><kbd>Ctrl</kbd><kbd>S</kbd></span></div>
+          <div class="sc-row"><span class="sc-k">另存新檔</span><span class="keys"><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>S</kbd></span></div>
+          <div class="sc-row"><span class="sc-k">上一張／下一張</span><span class="keys"><kbd>←</kbd><kbd>→</kbd></span></div>
+        </div>
+
+        <div class="sc-group">
+          <div class="sc-title">編輯</div>
+          <div class="sc-row"><span class="sc-k">復原</span><span class="keys"><kbd>Ctrl</kbd><kbd>Z</kbd></span></div>
+          <div class="sc-row"><span class="sc-k">重做</span><span class="keys"><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>Z</kbd></span></div>
+          <div class="sc-row"><span class="sc-k">刪除選取標註</span><span class="keys"><kbd>Delete</kbd></span></div>
+          <div class="sc-row"><span class="sc-k">取消選取／退出裁切</span><span class="keys"><kbd>Esc</kbd></span></div>
+        </div>
+
+        <div class="sc-group">
+          <div class="sc-title">視圖</div>
+          <div class="sc-row"><span class="sc-k">放大</span><span class="keys"><kbd>+</kbd><kbd>=</kbd></span></div>
+          <div class="sc-row"><span class="sc-k">縮小</span><span class="keys"><kbd>-</kbd></span></div>
+          <div class="sc-row"><span class="sc-k">適應視窗</span><span class="keys"><kbd>0</kbd></span></div>
+          <div class="sc-row"><span class="sc-k">資訊分頁（編輯中）</span><span class="keys"><kbd>I</kbd></span></div>
+          <div class="sc-row"><span class="sc-k">全螢幕</span><span class="keys"><kbd>F</kbd></span></div>
+          <div class="sc-row"><span class="sc-k">平移畫布</span><span class="keys"><kbd>Space</kbd></span></div>
+        </div>
+
+        <div class="sc-group">
+          <div class="sc-title">階段</div>
+          <div class="sc-row"><span class="sc-k">資訊浮卡（預覽）</span><span class="keys"><kbd>I</kbd></span></div>
+          <div class="sc-row"><span class="sc-k">回預覽（編輯中，先取消選取／裁切）</span><span class="keys"><kbd>Esc</kbd></span></div>
+          <p class="sc-note">預覽→編輯請按右上角「編輯」按鈕</p>
+        </div>
+
+        <div class="sc-group">
+          <div class="sc-title">工具</div>
+          <div class="sc-row"><span class="sc-k">移動</span><span class="keys"><kbd>V</kbd></span></div>
+          <div class="sc-row"><span class="sc-k">畫筆</span><span class="keys"><kbd>B</kbd></span></div>
+          <div class="sc-row"><span class="sc-k">矩形</span><span class="keys"><kbd>R</kbd></span></div>
+          <div class="sc-row"><span class="sc-k">圓框</span><span class="keys"><kbd>O</kbd></span></div>
+          <div class="sc-row"><span class="sc-k">箭頭</span><span class="keys"><kbd>A</kbd></span></div>
+          <div class="sc-row"><span class="sc-k">文字</span><span class="keys"><kbd>T</kbd></span></div>
+          <div class="sc-row"><span class="sc-k">裁切</span><span class="keys"><kbd>C</kbd></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================= 通知 ============================= -->
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

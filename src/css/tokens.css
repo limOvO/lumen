@@ -1,0 +1,90 @@
+/* ==========================================================================
+   Lumen — 設計變數（深色，近黑底 + 近白主色）
+   依知識庫《配色方案：深色》落地；app.css 只使用這裡的變數。
+   ========================================================================== */
+
+:root {
+  color-scheme: dark;
+
+  /* 底色層級：頁面 < 面板/表面 < 再亮一檔 */
+  --bg: #151517;
+  --panel: #232324;
+  --surface: color-mix(in srgb, #ffffff 6%, #232324);
+  --surface-2: color-mix(in srgb, #ffffff 10%, #232324);
+  --surface-3: color-mix(in srgb, #ffffff 14%, #232324);
+
+  /* 畫布 / 編輯器外框 */
+  --canvas: #101012;
+  --rail: #1c1c1e;
+  --status: #1c1c1e;
+
+  /* 線條：深色底直接沿用 6% 會隱形，一律用 14% */
+  --line: rgba(255, 255, 255, 0.14);
+  --line-strong: color-mix(in srgb, #f9fafb 24%, transparent);
+  --line-faint: rgba(255, 255, 255, 0.1);
+
+  /* 文字 */
+  --text: #f9fafb;
+  --text-dim: #9ca3af;
+  --text-faint: color-mix(in srgb, #f9fafb 62%, transparent);
+  --text-on-brand: #151517;
+
+  /* 主色＝近白；紅色只留給標註／選取／比較等工具語意 */
+  --brand: #f9fafb;
+  --brand-soft: color-mix(in srgb, #f9fafb 10%, transparent);
+  --brand-strong: #ffffff;
+  --accent: #f9fafb;
+  --accent-soft: color-mix(in srgb, #f9fafb 12%, transparent);
+  --tool: #ff5c5c;
+  --tool-soft: color-mix(in srgb, #ff5c5c 16%, transparent);
+
+  /* 語意色 */
+  --ok: #22c55e;
+  --warn: #f59e0b;
+  --err: #ef4444;
+
+  /* 畫布棋盤格（只在圖片有 alpha 時才看得到） */
+  --checker-a: #141416;
+  --checker-b: #1a1a1d;
+
+  /* 版面尺寸 */
+  --topbar-h: 46px;
+  --rail-w: 52px;
+  --panel-w: 300px;
+  --inspector-w: 300px;
+  --inspector-min: 240px;
+  --inspector-max: 420px;
+  --film-h: 76px;
+  --film-h-collapsed: 30px;
+  --statusbar-h: 24px;
+
+  /* 圓角節奏：控制項 8 / 面板卡片 12 / chip 999 */
+  --radius-sm: 8px;
+  --radius: 12px;
+  --radius-lg: 12px;
+  --radius-pill: 999px;
+
+  /* 動效 */
+  --dur-fast: 120ms;
+  --dur: 180ms;
+  --dur-panel: 220ms;
+  --dur-slow: 260ms;
+  --ease: cubic-bezier(0.2, 0.8, 0.25, 1);
+  --ease-out: cubic-bezier(0.2, 0.8, 0.25, 1);
+
+  /* 字體 */
+  --font-ui: system-ui, -apple-system, "Segoe UI", "Noto Sans TC",
+    "PingFang TC", "Microsoft JhengHei", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+
+  /* 層級 */
+  --z-hud: 20;
+  --z-dropdown: 120;
+  --z-modal: 100;
+  --z-toast: 200;
+
+  /* 焦點外框 */
+  --focus-ring: 2px solid var(--brand);
+  --focus-offset: 2px;
+}

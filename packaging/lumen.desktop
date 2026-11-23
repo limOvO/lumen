@@ -1,0 +1,23 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Lumen
+Name[zh_TW]=Lumen
+Name[zh_CN]=Lumen
+GenericName=Image Viewer
+GenericName[zh_TW]=圖片檢視器
+GenericName[zh_CN]=图片查看器
+Comment=Lightweight image viewer and annotator
+Comment[zh_TW]=輕量級圖片檢視與標註工具
+Comment[zh_CN]=轻量级图片查看与标注工具
+Exec=lumen %U
+TryExec=lumen
+Icon=lumen
+Terminal=false
+StartupNotify=true
+StartupWMClass=lumen
+Categories=Graphics;Viewer;Photography;
+MimeType=image/png;image/jpeg;image/webp;image/gif;image/bmp;image/tiff;image/avif;image/svg+xml;
+Keywords=image;viewer;photo;picture;annotate;edit;crop;resize;compress;exif;
+Keywords[zh_TW]=圖片;看圖;檢視器;相片;照片;標註;編輯;裁切;縮放;壓縮;資訊;
+Keywords[zh_CN]=图片;看图;查看器;照片;标注;编辑;裁剪;缩放;压缩;信息;

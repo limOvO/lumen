@@ -1,0 +1,52 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Lumen",
+  "version": "0.1.0",
+  "identifier": "dev.limm.lumen",
+  "build": {
+    "frontendDist": "../src"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Lumen",
+        "width": 1280,
+        "height": 820,
+        "minWidth": 880,
+        "minHeight": 560,
+        "center": true,
+        "resizable": true,
+        "visible": false,
+        "backgroundColor": "#101012",
+        "theme": "Dark",
+        "dragDropEnabled": true,
+        "decorations": true
+      }
+    ],
+    "security": {
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["$HOME/**", "/tmp/**", "/run/media/**", "/media/**"]
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["deb"],
+    "category": "Graphics",
+    "shortDescription": "輕量級圖片檢視／標註器",
+    "longDescription": "Lumen 是輕量級圖片檢視與標註工具：預覽、EXIF 資訊、裁切、縮放、壓縮與畫筆/矩形/圓框/箭頭/文字註釋。",
+    "icon": [
+      "icons/16x16.png",
+      "icons/32x32.png",
+      "icons/48x48.png",
+      "icons/64x64.png",
+      "icons/128x128.png",
+      "icons/256x256.png",
+      "icons/icon.png"
+    ]
+  }
+}
