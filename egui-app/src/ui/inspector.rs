@@ -16,7 +16,8 @@ pub fn show(ctx: &egui::Context, state: &mut AppState) {
     // Same slide/fade as the rail: width 0 -> 300 with a small x-offset.
     // Collapsing the inspector (top-bar button) animates through the same path.
     let collapsed = local::get(ctx, |l| l.inspector_collapsed);
-    let target = state.phase == Phase::Edit && !collapsed;
+    // body.no-doc keeps the inspector visible even in the preview phase.
+    let target = !collapsed && (state.phase == Phase::Edit || state.doc.is_none());
     let t = motion::blend(ctx, Id::new("inspector-slide"), target, motion::PANEL);
     if !target && t <= 0.001 {
         return;

@@ -31,7 +31,8 @@ const TOOLS: [ToolEntry; 8] = [
 
 pub fn show(ctx: &egui::Context, state: &mut AppState) {
     // Slide in on preview -> edit, slide out on edit -> preview (web 220–240 ms).
-    let target = state.phase == Phase::Edit;
+    // The no-document state keeps the editor chrome visible (body.no-doc).
+    let target = state.phase == Phase::Edit || state.doc.is_none();
     let t = motion::blend(ctx, Id::new("toolrail-slide"), target, motion::PANEL);
     if !target && t <= 0.001 {
         return;
@@ -117,6 +118,10 @@ fn draw_rail(ui: &mut egui::Ui, state: &mut AppState) {
         }
     });
 
+    // In the no-document state the zoom controls float in the canvas instead.
+    if state.doc.is_none() {
+        return;
+    }
     // Zoom stack pinned to the bottom of the rail.
     let zoom_h = zoom::stack_height(true);
     let zoom_rect = Rect::from_min_size(

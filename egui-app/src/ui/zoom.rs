@@ -123,10 +123,12 @@ pub fn stack(ui: &mut Ui, state: &mut AppState, vertical: bool) {
         "—".to_string()
     };
     let enabled = ui.is_enabled() && has_doc;
+    // The web build keeps the zoom-% label enabled (white) even with no document.
+    let value_enabled = ui.is_enabled();
     let (icon_h, value_w, value_h, value_font) = if vertical {
         (27.0, 30.0, 22.0, 10.0)
     } else {
-        (30.0, 48.0, 30.0, 11.0)
+        (30.0, 30.0, 30.0, 11.0)
     };
     let mut body = |ui: &mut Ui| {
         let resp = hud_icon(ui, Icon::Plus, enabled, icon_h);
@@ -134,7 +136,7 @@ pub fn stack(ui: &mut Ui, state: &mut AppState, vertical: bool) {
             zoom_in(state, floor);
         }
         resp.on_hover_text("放大（+）");
-        let resp = hud_value(ui, &pct, value_w, value_h, value_font, enabled);
+        let resp = hud_value(ui, &pct, value_w, value_h, value_font, value_enabled);
         if resp.clicked() && enabled {
             zoom_fit(state);
         }
@@ -168,7 +170,7 @@ pub fn stack(ui: &mut Ui, state: &mut AppState, vertical: bool) {
 pub fn floating_frame() -> egui::Frame {
     egui::Frame::new()
         .fill(Color32::from_rgba_unmultiplied(16, 16, 18, 190))
-        .inner_margin(egui::Margin::symmetric(3, 3))
+        .inner_margin(egui::Margin::symmetric(2, 2))
         .corner_radius(10.0)
         .stroke(Stroke::new(1.0_f32, widgets::white(28)))
 }

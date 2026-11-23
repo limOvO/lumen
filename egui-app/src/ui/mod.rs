@@ -12,6 +12,7 @@
 //   shortcuts   shortcut reference overlay (any phase)
 
 pub mod dock;
+pub mod empty;
 pub mod format;
 pub mod info;
 pub mod inspector;

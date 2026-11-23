@@ -26,6 +26,13 @@ pub fn show(ctx: &egui::Context, state: &mut AppState) {
     if reset_compare {
         state.compare = false;
     }
+    // Without a document the web build keeps the *editor* chrome (body.no-doc
+    // keeps the preview-hiding rules from applying) and shows a drop card.
+    if state.doc.is_none() {
+        editor_bar(ctx, state);
+        super::empty::show(ctx, state);
+        return;
+    }
     match state.phase {
         Phase::Preview => super::preview::chrome(ctx, state),
         Phase::Edit => editor_bar(ctx, state),
@@ -115,17 +122,19 @@ fn editor_bar(ctx: &egui::Context, state: &mut AppState) {
                     }
                     widgets::sep_v(ui);
 
-                    let redo = widgets::icon_button(ui, Icon::Redo, &t.tr("重做（Ctrl+Shift+Z）"), true);
+                    let has_doc = state.doc.is_some();
+                    let redo =
+                        widgets::icon_button(ui, Icon::Redo, &t.tr("重做（Ctrl+Shift+Z）"), has_doc);
                     if redo.clicked() {
                         state.redo();
                     }
-                    let undo = widgets::icon_button(ui, Icon::Undo, &t.tr("復原（Ctrl+Z）"), true);
+                    let undo =
+                        widgets::icon_button(ui, Icon::Undo, &t.tr("復原（Ctrl+Z）"), has_doc);
                     if undo.clicked() {
                         state.undo();
                     }
                     widgets::sep_v(ui);
 
-                    let has_doc = state.doc.is_some();
                     let saveas = widgets::bar_button(
                         ui,
                         &t.tr("另存"),

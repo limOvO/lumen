@@ -14,7 +14,8 @@ use super::format::fmt_bytes;
 use super::widgets;
 
 pub fn show(ctx: &egui::Context, state: &mut AppState) {
-    if state.phase != Phase::Edit {
+    // body.no-doc keeps the status bar visible (with dashes).
+    if state.phase != Phase::Edit && state.doc.is_some() {
         return;
     }
     egui::TopBottomPanel::bottom("statusbar")
@@ -54,9 +55,13 @@ pub fn show(ctx: &egui::Context, state: &mut AppState) {
             )
         })
         .unwrap_or_else(|| "—".to_string());
-    let pct = format!("{:.0}%", state.view.scale * 100.0);
-    let count = format!("{} / {}", state.index + 1, state.siblings.len().max(1));
-    let right = format!("{pct} · {count}");
+    let right = if state.doc.is_some() {
+        let pct = format!("{:.0}%", state.view.scale * 100.0);
+        let count = format!("{} / {}", state.index + 1, state.siblings.len().max(1));
+        format!("{pct} · {count}")
+    } else {
+        "—".to_string()
+    };
     let font = FontId::proportional(10.5);
 
     egui::Area::new(Id::new("statusbar-overlay"))

@@ -525,6 +525,25 @@ impl eframe::App for LumenApp {
             crate::single_instance::attach_context(ctx.clone());
             ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
         }
+        // Drag & drop parity with the web build: drop a file anywhere to open it.
+        let dropped: Vec<PathBuf> = ctx.input(|i| {
+            i.raw
+                .dropped_files
+                .iter()
+                .filter_map(|f| f.path.clone())
+                .collect()
+        });
+        for path in dropped {
+            if path.is_dir() {
+                if let Some(first) = crate::doc::siblings(&path.join("first.jpg")).into_iter().find(|p| p.is_file()) {
+                    self.open(&first, Some(ctx));
+                } else {
+                    self.browser.open_at(Some(path));
+                }
+            } else {
+                self.open(&path, Some(ctx));
+            }
+        }
         let modal_open = self.browser.open || self.dialog.open;
         if !modal_open {
             self.handle_keys(ctx);

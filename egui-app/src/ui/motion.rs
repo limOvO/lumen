@@ -38,6 +38,35 @@ pub fn scaled_duration(style_animation_time: f32, nominal: f32) -> f32 {
     (nominal * scale).min(MAX_DURATION)
 }
 
+/// One-shot intro animation for elements that appear on the very first frame
+/// (where `animate_bool` would snap straight to 1). Starts at 0 the first time
+/// it is called for `id`, eases to 1 over `nominal`, and requests repaints only
+/// while it is still progressing. Call `reset_intro` when the element goes away
+/// so a later re-appearance animates again.
+pub fn intro(ctx: &Context, id: Id, nominal: f32) -> f32 {
+    let now = ctx.input(|i| i.time);
+    let start = ctx.data_mut(|d| *d.get_temp_mut_or_insert_with(id, move || now));
+    let duration = scaled_duration(ctx.style().animation_time, nominal);
+    let progress = intro_progress(start, now, duration);
+    if progress < 1.0 {
+        ctx.request_repaint();
+    }
+    easing::cubic_out(progress)
+}
+
+/// Drop a stored intro start time (element was hidden / document loaded).
+pub fn reset_intro(ctx: &Context, id: Id) {
+    ctx.data_mut(|d| d.remove::<f64>(id));
+}
+
+/// Pure progress helper for [`intro`] (kept testable without a context).
+pub fn intro_progress(start: f64, now: f64, duration: f32) -> f32 {
+    if !(duration > 0.0) || !start.is_finite() || !now.is_finite() {
+        return 1.0;
+    }
+    (((now - start) / duration as f64) as f32).clamp(0.0, 1.0)
+}
+
 /// Eased 0..1 value for a boolean target. repaints only while moving.
 pub fn blend(ctx: &Context, id: Id, target: bool, nominal: f32) -> f32 {
     let duration = scaled_duration(ctx.style().animation_time, nominal);
@@ -90,6 +119,18 @@ mod tests {
         assert_eq!(slide_offset(0.0, 18.0), 18.0);
         assert_eq!(slide_offset(0.5, 18.0), 9.0);
         assert_eq!(slide_offset(-1.0, 18.0), 18.0);
+    }
+
+    #[test]
+    fn intro_progress_is_time_based_and_clamped() {
+        // Duration 0 (reduced motion) -> instantly finished.
+        assert_eq!(intro_progress(1.0, 1.0, 0.0), 1.0);
+        assert_eq!(intro_progress(0.0, 0.0, 0.18), 0.0);
+        assert!((intro_progress(0.0, 0.09, 0.18) - 0.5).abs() < 1e-6);
+        assert_eq!(intro_progress(0.0, 0.5, 0.18), 1.0);
+        // Clock going backwards / NaN never panics or overshoots.
+        assert_eq!(intro_progress(1.0, 0.0, 0.18), 0.0);
+        assert_eq!(intro_progress(f64::NAN, 1.0, 0.18), 1.0);
     }
 
     #[test]

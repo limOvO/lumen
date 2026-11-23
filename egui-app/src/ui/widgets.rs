@@ -399,7 +399,10 @@ fn paint_button_base(
 ) -> Color32 {
     let hovered = enabled && resp.hovered();
     let fill = if style.primary {
-        if hovered {
+        if !enabled {
+            // Web `.tb-btn.tb-primary:disabled`: 12% white fill at 50% opacity.
+            white(15)
+        } else if hovered {
             Color32::WHITE
         } else {
             theme::TEXT
@@ -424,7 +427,11 @@ fn paint_button_base(
         );
     }
     if style.primary {
-        theme::BG
+        if enabled {
+            theme::BG
+        } else {
+            white(100)
+        }
     } else if style.accent {
         TOOL
     } else if !enabled {

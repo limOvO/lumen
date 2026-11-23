@@ -483,7 +483,19 @@ def main():
         s_empty = shot("egui-16-empty")
         im = img_arr(s_empty)
         content = bbox_nonbg(im, (0, 0, 1280, 820), tol=6)
-        check("B14", "empty state renders chrome", content is not None, str(content))
+        card_region = (380, 280, 900, 580)
+        px = im.load()
+        nonbg = 0
+        for y in range(card_region[1], card_region[3], 2):
+            for x in range(card_region[0], card_region[2], 2):
+                r, g, b = px[x, y]
+                if max(abs(r - 21), abs(g - 21), abs(b - 23)) > 12:
+                    nonbg += 1
+        check("B14", "empty state shows the drop card (web parity)", content is not None and nonbg > 800,
+              f"nonbg {nonbg} in {card_region}")
+        # empty-state chrome: rail + inspector present too
+        rail_px = im.getpixel((10, 300))
+        check("B14b", "empty state renders the editor chrome", max(abs(c - t) for c, t in zip(rail_px, (28, 28, 30))) <= 5, str(rail_px))
     finally:
         stop(p)
 

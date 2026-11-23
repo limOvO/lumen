@@ -22,10 +22,18 @@ Tauri/WebKit build in this repo, driven by the same scripts.
 | 13 | Languages | zh-TW / zh-CN / en follow LANG, LUMEN_LANG override | B15 + full glyph coverage for Hans |
 | 14 | Shortcuts | `?` panel, Esc behaviour, F fullscreen, I info | B12 + B3/B4 |
 | 15 | Benchmark | time-to-photo and PSS ≤ reference on the same box | P2 (inline bench, median of 2) |
+| 16 | Empty state | full editor chrome + centred drop card (drag/drop, 開啟圖片…, 快捷鍵, Ctrl+O hint) | B14/B14b (card pixel count + rail colour) |
+| 17 | Drag & drop | dropping a file/folder opens it | implemented in app.rs (`raw.dropped_files`), covered by code review (xdotool cannot synthesise DnD) |
 
 Compare semantics match `src/js/main.js`: the toggle survives phase changes and resets
 when a different document is loaded (`AppState::reset_for_doc`), with the annotations
 hidden while it is on.
+
+Paired screenshot review: `.cache/parity/pairs/` (preview, info, edit, brush, rect, crop,
+crop-ratio, adjust, shortcuts, back-to-preview, open, save-as) and `.cache/parity/pairs-extra/`
+(line, arrow, text, compare on/off, empty) were reviewed side by side; the only remaining
+deltas are renderer-level (font rasterisation and egui widget metrics) — layout, palette,
+copy and behaviour match. The empty state was the one real gap found and is now fixed.
 
 Verified in this revision: single-instance forwarding (second launch with a file
 updates the running window, still one window), CJK annotation text (inline editor
@@ -50,7 +58,7 @@ Known, accepted differences (not testable/changed here):
 ## Automated gate
 
 `python3 scripts/parity/verify.py` drives the real egui binary (private Xvfb `:96`) and asserts
-39 checks spanning geometry, palette parity against a live WebView capture, presence of every
+40 checks spanning geometry, palette parity against a live WebView capture, presence of every
 chrome region, tool behaviour (brush/line/arrow/rect/crop/text/delete/undo/redo/compare),
 zoom/fit behaviour, animated transitions (image switch, phase glide, rail slide, dock rise,
 peek close), idle CPU, languages, single-instance forwarding, save/save-as and the benchmark.
