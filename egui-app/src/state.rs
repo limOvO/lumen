@@ -237,6 +237,7 @@ impl AppState {
         self.crop = None;
         self.crop_committed = false;
         self.dirty = false;
+        self.compare = false;
         self.undo.clear();
         self.redo.clear();
     }

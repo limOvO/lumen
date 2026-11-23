@@ -23,6 +23,10 @@ Tauri/WebKit build in this repo, driven by the same scripts.
 | 14 | Shortcuts | `?` panel, Esc behaviour, F fullscreen, I info | scripted |
 | 15 | Benchmark | time-to-photo and PSS ≤ reference on the same box | `scripts/bench-egui.sh` vs `scripts/bench-vs-loupe.sh` |
 
+Compare semantics match `src/js/main.js`: the toggle survives phase changes and resets
+when a different document is loaded (`AppState::reset_for_doc`), with the annotations
+hidden while it is on.
+
 Verified in this revision: single-instance forwarding (second launch with a file
 updates the running window, still one window), CJK annotation text (inline editor
 commits with Ctrl+Enter / click-outside, weight-600 rendering on screen and in export),

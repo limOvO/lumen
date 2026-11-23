@@ -110,7 +110,7 @@ Output: JPEG (white background), PNG, WebP.
 **Language:** follows the OS — Traditional Chinese, Simplified Chinese, English for
 everything else. Force it with `LUMEN_LANG=zh-Hans` (or `zh-Hant`, `en`).
 
-## Rust + wgpu + egui rewrite (in progress)
+## Rust + wgpu + egui build (parity-complete)
 
 A second build of Lumen is being ported to **Rust + wgpu + egui** (no WebView) to reach
 Loupe-class footprint with GPU rendering:
