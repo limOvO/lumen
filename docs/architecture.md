@@ -15,7 +15,7 @@ median of 4 runs. "photo" = first frame in a 60 fps capture that shows the pictu
 | current Lumen (Tauri + WebKit) | 81 ms | 447 ms | 469 ms | 263 MB | 269 MB |
 | `spikes/gtk3-viewer` (GTK3 + cairo) | 54 ms | **54 ms** | **104 ms** | **24 MB** | **95 MB** |
 | `spikes/egui-viewer` (wgpu + egui) | 71 ms | 71 ms | 129 ms | 116 MB | 155 MB |
-| **`egui-app` (rewrite, full UI)** | 79 ms | **79 ms** | 237 ms | 125 MB | 148 MB |
+| **`egui-app` (rewrite, final)** | 79 ms | **79 ms** | 238 ms | 148 MB | 165 MB |
 | Loupe 51.2 (GTK4 / libadwaita) | 146 ms | 212 ms | 339 ms | 113 MB | 137 MB |
 
 ## Note on the egui numbers

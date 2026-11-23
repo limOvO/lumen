@@ -1,7 +1,7 @@
 // Right-side inspector for the editor: 資訊 / 調整 / 裁切 tabs.
 // The info page is shared with the preview peek card (info.rs).
 
-use egui::{Align, FontId, Pos2, Rect, Sense, Stroke, Ui, Vec2};
+use egui::{Align, FontId, Id, Pos2, Rect, Sense, Stroke, Ui, Vec2};
 
 use crate::i18n::Locale;
 use crate::state::{AppState, OutputFormat, Phase, StatusKind, Tool, UiAction};
@@ -9,60 +9,84 @@ use crate::theme;
 
 use super::format::{self, RatioPreset};
 use super::local::{self, PanelTab};
+use super::motion;
 use super::widgets::{self, Icon};
 
 pub fn show(ctx: &egui::Context, state: &mut AppState) {
-    if state.phase != Phase::Edit {
+    // Same slide/fade as the rail: width 0 -> 300 with a small x-offset.
+    // Collapsing the inspector (top-bar button) animates through the same path.
+    let collapsed = local::get(ctx, |l| l.inspector_collapsed);
+    let target = state.phase == Phase::Edit && !collapsed;
+    let t = motion::blend(ctx, Id::new("inspector-slide"), target, motion::PANEL);
+    if !target && t <= 0.001 {
         return;
     }
-    if local::get(ctx, |l| l.inspector_collapsed) {
-        return;
-    }
-    // Tabs follow the tool: picking the crop tool activates 裁切.
-    let tab = local::with(ctx, |l| {
-        if l.last_tool != Some(state.tool) {
-            l.last_tool = Some(state.tool);
-            if state.tool == Tool::Crop {
-                l.tab = PanelTab::Crop;
+    // Tabs follow the tool: picking the crop tool activates 裁切. Only update
+    // while the panel is actually being shown so the closing frame keeps its tab.
+    let tab = if target {
+        local::with(ctx, |l| {
+            if l.last_tool != Some(state.tool) {
+                l.last_tool = Some(state.tool);
+                if state.tool == Tool::Crop {
+                    l.tab = PanelTab::Crop;
+                }
             }
-        }
-        l.tab
-    });
+            l.tab
+        })
+    } else {
+        local::get(ctx, |l| l.tab)
+    };
+    let width = (theme::PANEL_W * t).max(0.0);
 
     egui::SidePanel::right("inspector")
-        .exact_width(theme::PANEL_W)
+        .exact_width(width)
         .resizable(false)
         .show_separator_line(false)
         .frame(
             egui::Frame::new()
-                .fill(theme::PANEL)
+                .fill(motion::faded(theme::PANEL, t))
                 .inner_margin(egui::Margin::ZERO)
-                .stroke(Stroke::new(1.0_f32, theme::LINE)),
+                .stroke(Stroke::new(1.0_f32, motion::faded(theme::LINE, t))),
         )
         .show(ctx, |ui| {
-            // Left hairline: the panel is flush against the canvas.
-            let rect = ui.max_rect();
-            ui.painter().vline(
-                rect.left(),
-                rect.y_range(),
-                Stroke::new(1.0_f32, widgets::white(26)),
+            ui.set_opacity(t);
+            // Full-width content anchored to the right edge, revealed by the
+            // growing panel (no reflow), plus the web translateX(6px) -> 0.
+            let base = ui.max_rect();
+            let content = Rect::from_min_size(
+                Pos2::new(
+                    base.right() - theme::PANEL_W + motion::slide_offset(t, 6.0),
+                    base.top(),
+                ),
+                Vec2::new(theme::PANEL_W, base.height()),
             );
-            let active = tabs(ui, tab, state.locale);
-            if active != tab {
-                local::with(ui.ctx(), |l| l.tab = active);
-            }
-            ui.painter().hline(
-                ui.max_rect().x_range(),
-                ui.max_rect().top(),
-                Stroke::new(1.0_f32, widgets::white(26)),
-            );
-            egui::ScrollArea::vertical()
-                .id_salt("inspector-scroll")
-                .auto_shrink([false, false])
-                .show(ui, |ui| {
-                    ui.set_width(ui.available_width());
-                    page(ui, active, state);
-                });
+            widgets::at_rect(ui, content, |ui| panel_content(ui, state, tab));
+        });
+}
+
+fn panel_content(ui: &mut Ui, state: &mut AppState, tab: PanelTab) {
+    // Left hairline: the panel is flush against the canvas.
+    let rect = ui.max_rect();
+    ui.painter().vline(
+        rect.left(),
+        rect.y_range(),
+        Stroke::new(1.0_f32, widgets::white(26)),
+    );
+    let active = tabs(ui, tab, state.locale);
+    if active != tab {
+        local::with(ui.ctx(), |l| l.tab = active);
+    }
+    ui.painter().hline(
+        ui.max_rect().x_range(),
+        ui.max_rect().top(),
+        Stroke::new(1.0_f32, widgets::white(26)),
+    );
+    egui::ScrollArea::vertical()
+        .id_salt("inspector-scroll")
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            page(ui, active, state);
         });
 }
 

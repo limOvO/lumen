@@ -5,23 +5,23 @@ captures + window geometry) plus the 118-test suite; environment-specific items 
 noted below. "Reference" means the
 Tauri/WebKit build in this repo, driven by the same scripts.
 
-| # | Area | Reference behaviour | Verification |
+| # | Area | Reference behaviour | Verification (verify.py check ids) |
 |---|---|---|---|
-| 1 | Open | File manager / CLI opens straight into the viewer | launch `lumen-egui-app photo.jpg`, screenshot |
-| 2 | Preview | fit ≥ min scale, wheel zoom at cursor, drag-pan only when zoomed | scripted xdotool + zoom label |
-| 3 | Navigation | ← → through the folder, counter chip | scripted keys + screenshot |
-| 4 | Info | dimensions, format, size, mtime, path, EXIF rows | compare with web info panel |
-| 5 | Edit entry | E / button, rail + panels + dock appear | screenshot |
-| 6 | Annotations | brush/line/rect/ellipse/arrow/text, colour/size/opacity/dashed | draw script, compare geometry ratios |
-| 7 | Selection | move/resize/delete, 2-point handles for line+arrow | screenshot + unit tests |
-| 8 | Crop | 80% default frame, ratio presets rebuild the box, Shift ratio, apply keeps for export | screenshot + unit tests |
-| 9 | Resize | max long edge / explicit width, export pixels match | unit test on output dimensions |
-| 10 | Compress | target KB: JPEG **and** lossy WebP bisect; output ≤ target when reachable, smallest fallback otherwise | unit tests |
-| 11 | Save | save overwrite / save-as, JPEG white background, EXIF stripped | overwrite + save-as wired, exercised end-to-end (wrote a 4000×3000 file), unit-tested |
-| 12 | Undo | 80 steps, first undo works | scripted edit + Ctrl+Z |
-| 13 | Languages | zh-TW / zh-CN / en follow LANG, LUMEN_LANG override | launch with each locale |
-| 14 | Shortcuts | `?` panel, Esc behaviour, F fullscreen, I info | scripted |
-| 15 | Benchmark | time-to-photo and PSS ≤ reference on the same box | `scripts/bench-egui.sh` vs `scripts/bench-vs-loupe.sh` |
+| 1 | Open | File manager / CLI opens straight into the viewer | B14/B16/B17 (launch, single instance, forwarded file) |
+| 2 | Preview | fit ≥ min scale, wheel zoom at cursor, drag-pan only when zoomed | B1/B2 zoom + fit |
+| 3 | Navigation | ← → through the folder, counter chip | A1 image switch + G3 chip |
+| 4 | Info | dimensions, format, size, mtime, path, EXIF rows | B3/B4 card open/close |
+| 5 | Edit entry | E / button, rail + panels + dock appear | G6/G7/G8 + A3 rail slide |
+| 6 | Annotations | brush/line/rect/ellipse/arrow/text, colour/size/opacity/dashed | B5/B8/B20/B21/B22 (+37 unit tests) |
+| 7 | Selection | move/resize/delete, 2-point handles for line+arrow | B23 + unit tests |
+| 8 | Crop | 80% default frame, ratio presets rebuild the box, Shift ratio, apply keeps for export | B11 + crop unit tests (exact web numbers) |
+| 9 | Resize | max long edge / explicit width, export pixels match | unit tests (`export::target`, `flatten_dimensions…`) |
+| 10 | Compress | target KB: JPEG **and** lossy WebP bisect; output ≤ target when reachable, smallest fallback otherwise | unit tests (`encode_to_target_*`, `webp_encode_to_target_fits_300kb`) |
+| 11 | Save | save overwrite / save-as, JPEG white background, EXIF stripped | B18/B19 end-to-end + unit tests |
+| 12 | Undo | 80 steps, first undo works | B6/B7 undo/redo |
+| 13 | Languages | zh-TW / zh-CN / en follow LANG, LUMEN_LANG override | B15 + full glyph coverage for Hans |
+| 14 | Shortcuts | `?` panel, Esc behaviour, F fullscreen, I info | B12 + B3/B4 |
+| 15 | Benchmark | time-to-photo and PSS ≤ reference on the same box | P2 (inline bench, median of 2) |
 
 Compare semantics match `src/js/main.js`: the toggle survives phase changes and resets
 when a different document is loaded (`AppState::reset_for_doc`), with the annotations
@@ -46,6 +46,16 @@ Known, accepted differences (not testable/changed here):
   font-rasterisation differences.
 - The desktop entry for this build is separate (`Lumen (egui)`); packaging for it lives
   in scripts/install-egui.sh until we make it the default viewer.
+
+## Automated gate
+
+`python3 scripts/parity/verify.py` drives the real egui binary (private Xvfb `:96`) and asserts
+39 checks spanning geometry, palette parity against a live WebView capture, presence of every
+chrome region, tool behaviour (brush/line/arrow/rect/crop/text/delete/undo/redo/compare),
+zoom/fit behaviour, animated transitions (image switch, phase glide, rail slide, dock rise,
+peek close), idle CPU, languages, single-instance forwarding, save/save-as and the benchmark.
+Report: `.cache/parity/report.json`; exit code 0 only when every check passes.
+`--quick` skips the two benchmark runs.
 
 ## How to run
 

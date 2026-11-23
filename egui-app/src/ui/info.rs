@@ -8,15 +8,16 @@ use crate::state::{AppState, Phase};
 use crate::theme;
 
 use super::local;
+use super::motion;
 use super::widgets;
 
 pub fn show(ctx: &egui::Context, state: &mut AppState) {
-    if state.phase != Phase::Preview {
-        return;
-    }
-    let open = state.show_info;
-    let t = ctx.animate_bool_with_time(Id::new("peek-info-anim"), open, 0.20);
-    if !open && t <= 0.001 {
+    // Open only in preview; switching to edit plays the 200 ms close animation
+    // while the inspector slides in. When fully closed we return before any
+    // repaint request, so an idle/closed card never spins.
+    let open = state.show_info && state.phase == Phase::Preview;
+    let t = motion::blend(ctx, Id::new("peek-info-anim"), open, motion::PEEK);
+    if t <= 0.001 {
         return;
     }
     let screen = ctx.screen_rect();
@@ -66,7 +67,7 @@ pub fn show(ctx: &egui::Context, state: &mut AppState) {
 
     // Click outside closes the card; presses on the dock button are ignored so
     // the toggle itself can close it.
-    if state.show_info && ctx.input(|i| i.pointer.any_pressed()) {
+    if open && ctx.input(|i| i.pointer.any_pressed()) {
         if let Some(p) = ctx.input(|i| i.pointer.interact_pos()) {
             let on_card = rect.contains(p);
             let on_dock = local::get(ctx, |l| l.preview_dock).contains(p);
@@ -75,8 +76,6 @@ pub fn show(ctx: &egui::Context, state: &mut AppState) {
             }
         }
     }
-    // Keep animating while the card is fading out.
-    if (t - 0.0).abs() < 0.999 {
-        ctx.request_repaint();
-    }
+    // No manual request_repaint here: `motion::blend()` (egui's animation
+    // manager) already asks for frames only while 0 < t < 1.
 }

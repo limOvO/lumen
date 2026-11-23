@@ -121,12 +121,17 @@ scripts/install-egui.sh          # install to ~/.local (add --desktop-shortcut /
 WGPU_BACKEND=gl ./dist/lumen-egui photo.jpg    # GL fallback for headless/software GL
 ```
 
-Current state: full viewer + editor chrome, annotation toolset (brush/line/rect/ellipse/
-arrow/text, dashed, weight-600 text), crop with ratio presets, export with JPEG/lossy-WebP
-target-KB compression, save/save-as, in-app folder browser with thumbnails, single-instance
-forwarding, 80-step undo, and the three languages. 118 unit tests + a parity gate:
-`scripts/parity/check.sh` (12 paired captures against the web build + geometry assertions);
-matrix: [docs/parity.md](docs/parity.md), benchmarks: [docs/architecture.md](docs/architecture.md).
+Parity-complete: full viewer + editor chrome with the web build's motion timings (rail/
+inspector slide, dock rise, peek card, image switch, phase glide), annotation toolset
+(brush/line/rect/ellipse/arrow/text, dashed, weight-600 text), crop with ratio presets,
+export with JPEG/lossy-WebP target-KB compression, save/save-as, in-app folder browser with
+thumbnails, single-instance forwarding, 80-step undo, three languages.
+
+Verified by `python3 scripts/parity/verify.py`: **39 automated checks** (geometry, palette
+delta 0 against a live WebView capture, chrome regions, all tools, undo/redo, compare, crop,
+zoom/fit, animations, idle CPU, languages, single-instance, save/save-as, benchmark) plus
+**121 unit tests**. Matrix: [docs/parity.md](docs/parity.md); benchmarks:
+[docs/architecture.md](docs/architecture.md).
 
 ## License
 

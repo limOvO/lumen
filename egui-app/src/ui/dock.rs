@@ -8,6 +8,7 @@ use crate::state::{AppState, Phase, Tool};
 use crate::theme;
 
 use super::local;
+use super::motion;
 use super::widgets::{self, Icon};
 
 pub const TOOL_COLORS: [Color32; 8] = [
@@ -29,7 +30,13 @@ fn is_drawing_tool(tool: Tool) -> bool {
 }
 
 pub fn show(ctx: &egui::Context, state: &mut AppState) {
-    if state.phase != Phase::Edit || state.doc.is_none() || !is_drawing_tool(state.tool) {
+    // Fade + rise in when a drawing tool is picked (240 ms), fade + drop out
+    // when leaving the tool or the editor (180 ms), web timings.
+    let target =
+        state.phase == Phase::Edit && state.doc.is_some() && is_drawing_tool(state.tool);
+    let nominal = if target { motion::DOCK_IN } else { motion::DOCK_OUT };
+    let enter = motion::blend(ctx, Id::new("style-dock-anim"), target, nominal);
+    if !target && enter <= 0.001 {
         return;
     }
     let t = state.locale;
@@ -39,13 +46,17 @@ pub fn show(ctx: &egui::Context, state: &mut AppState) {
         Some(p) => l.style_dock.expand(8.0).contains(p),
         None => false,
     });
-    let wake = ctx.animate_bool_with_time(Id::new("style-dock-wake"), was_hovered, 0.20);
-    let opacity = 0.45 + 0.55 * wake;
+    let wake = motion::blend(ctx, Id::new("style-dock-wake"), was_hovered, 0.20);
+    // Idle dimming stays, multiplied by the enter/exit progress.
+    let opacity = enter * (0.45 + 0.55 * wake);
+    // Rise from 18px below while fading in; drop back down while fading out.
+    let offset_y =
+        -(theme::STATUS_H + 56.0) + motion::slide_offset(enter, 18.0);
 
     let dock_w = 600.0_f32.min(screen.width() - 96.0);
     let resp = egui::Area::new(Id::new("style-dock"))
         .order(Order::Foreground)
-        .anchor(Align2::CENTER_BOTTOM, Vec2::new(0.0, -(theme::STATUS_H + 56.0)))
+        .anchor(Align2::CENTER_BOTTOM, Vec2::new(0.0, offset_y))
         .show(ctx, |ui| {
             ui.set_min_width(dock_w);
             ui.set_max_width(dock_w);

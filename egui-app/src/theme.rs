@@ -1,8 +1,8 @@
 // Shared visual constants (mirrors css/tokens.css so the two builds look alike).
 use egui::Color32;
 
-pub const BG: Color32 = Color32::from_rgb(16, 16, 18);
-pub const CANVAS: Color32 = Color32::from_rgb(16, 16, 18);
+pub const BG: Color32 = Color32::from_rgb(21, 21, 23); // --bg  #151517
+pub const CANVAS: Color32 = Color32::from_rgb(21, 21, 23); // --bg  #151517 (web stage backdrop)
 pub const PANEL: Color32 = Color32::from_rgb(35, 35, 36);
 pub const TEXT: Color32 = Color32::from_rgb(249, 250, 251);
 pub const DIM: Color32 = Color32::from_rgb(156, 163, 175);
@@ -38,7 +38,7 @@ mod tests {
 
     #[test]
     fn palette_matches_tokens_css() {
-        assert_eq!(BG.to_array(), [16, 16, 18, 255]);
+        assert_eq!(BG.to_array(), [21, 21, 23, 255]); // #151517 --bg
         assert_eq!(PANEL.to_array(), [35, 35, 36, 255]);
         assert_eq!(TEXT.to_array(), [249, 250, 251, 255]);
     }

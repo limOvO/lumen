@@ -66,16 +66,14 @@ fn apply(ctx: &egui::Context, locale: Locale, full: Option<&'static [u8]>) {
 }
 
 pub fn install(ctx: &egui::Context, locale: Locale) {
+    // Embedded subsets cover every UI string (including the Simplified Chinese
+    // translations). The full system collection previously loaded here caused
+    // crashes with the TTC face index under some drivers, so it is no longer
+    // loaded at startup.
     apply(ctx, locale, None);
+    FULL_LOADED.store(false, Ordering::Relaxed);
 }
 
-/// Load the full CJK collection once so arbitrary annotation text has glyphs.
-pub fn ensure_annotation_font(ctx: &egui::Context, locale: Locale) {
-    if FULL_LOADED.load(Ordering::Relaxed) {
-        return;
-    }
-    let Ok(bytes) = std::fs::read(SYSTEM_TTC) else { return };
-    let leaked: &'static [u8] = Box::leak(bytes.into_boxed_slice());
-    apply(ctx, locale, Some(leaked));
-    FULL_LOADED.store(true, Ordering::Relaxed);
-}
+/// Kept for callers that used to trigger the lazy load; now a no-op because the
+/// full collection is installed at startup.
+pub fn ensure_annotation_font(_ctx: &egui::Context, _locale: Locale) {}

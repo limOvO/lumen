@@ -24,6 +24,14 @@ pub struct LumenApp {
     pub dialog: SaveDialog,
     dialog_snap: Option<(OutputFormat, u8, Option<u32>, Option<f32>, Option<u32>)>,
     incoming: Option<Receiver<PathBuf>>,
+    last_phase: Phase,
+    phase_pending: bool,
+    view_anim: Option<(f32, f32, f32, f32, f64)>, // start_scale, start_off, target_scale, target_off, t0
+    switch: Option<(f32, f64)>,                   // direction, t0
+    switch_dir: f32,
+    perf: bool,
+    frame_ms: [f32; 30],
+    frame_idx: usize,
 }
 
 impl LumenApp {
@@ -45,6 +53,14 @@ impl LumenApp {
             },
             dialog_snap: None,
             incoming,
+            last_phase: Phase::Preview,
+            phase_pending: false,
+            view_anim: None,
+            switch: None,
+            switch_dir: 0.0,
+            perf: false,
+            frame_ms: [0.0; 30],
+            frame_idx: 0,
         };
         if let Some(path) = initial {
             app.open(&path, None);
@@ -57,6 +73,11 @@ impl LumenApp {
         match Doc::load(path, LoadOptions { max_pixels: cap }) {
             Ok(doc) => {
                 let name = doc.name.clone();
+                if self.state.doc.is_some() {
+                    let t = now();
+                    self.switch = Some((self.switch_dir, t));
+                    self.switch_dir = 0.0;
+                }
                 self.state.siblings = siblings(path);
                 self.state.index = self.state.siblings.iter().position(|p| p == path).unwrap_or(0);
                 self.state.doc = Some(doc);
@@ -78,6 +99,7 @@ impl LumenApp {
         if self.state.siblings.is_empty() {
             return;
         }
+        self.switch_dir = if delta >= 0 { 1.0 } else { -1.0 };
         let n = self.state.siblings.len() as i64;
         let next = ((self.state.index as i64 + delta + n) % n) as usize;
         let path = self.state.siblings[next].clone();
@@ -230,6 +252,9 @@ impl LumenApp {
                 self.state.set_tool(self.state.tool);
             }
         }
+        if ctx.input(|i| i.key_pressed(Key::F3)) {
+            self.perf = !self.perf;
+        }
         if full {
             self.state.fullscreen = !self.state.fullscreen;
             ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(self.state.fullscreen));
@@ -325,7 +350,13 @@ impl LumenApp {
     }
 
     /// Recompute the live size estimate (throttled; the decode cache makes it cheap).
-    fn refresh_estimate(&mut self) {
+    fn refresh_estimate(&mut self, ctx: Option<&egui::Context>) {
+        // Never spend decode/encode time while the user is dragging.
+        if let Some(ctx) = ctx {
+            if ctx.input(|i| i.pointer.any_down()) {
+                return;
+            }
+        }
         let now_ms = now() * 1000.0;
         let Some(doc) = self.state.doc.as_ref() else { return };
         let key = format!(
@@ -338,7 +369,13 @@ impl LumenApp {
             self.state.crop.map(|c| (c.x.round() as i64, c.y.round() as i64, c.w.round() as i64, c.h.round() as i64, c.ratio.map(|r| (r * 1000.0) as i64))),
             self.state.objects.len()
         );
-        if self.state.estimate.is_some() && key == self.estimate_key && now_ms - self.estimate_at < 120.0 {
+        // Recompute only when the settings actually changed, and debounce bursts
+        // (this used to fall through every frame after the window elapsed, which
+        // burned a full core while editing).
+        if key == self.estimate_key {
+            return;
+        }
+        if now_ms - self.estimate_at < 400.0 {
             return;
         }
         self.estimate_key = key;
@@ -361,7 +398,7 @@ impl LumenApp {
                     self.state.crop_committed = false;
                 }
                 UiAction::Save => self.save_overwrite(),
-                UiAction::Estimate => self.refresh_estimate(),
+                UiAction::Estimate => self.refresh_estimate(None),
                 UiAction::Open => {
                     let start = self.state.doc.as_ref().map(|d| d.path.clone());
                     self.browser.open_at(start);
@@ -388,23 +425,65 @@ impl LumenApp {
                     return;
                 };
                 let (w, h) = (doc.width as f32, doc.height as f32);
-                if self.state.view.fit {
+                let stage = rect.shrink2(Vec2::new(32.0, 32.0));
+                let fit_scale = (stage.width() / w).min(stage.height() / h).min(1.0);
+                if self.phase_pending {
+                    self.phase_pending = false;
+                    self.view_anim = Some((
+                        self.state.view.scale,
+                        self.state.view.offset.y,
+                        fit_scale,
+                        0.0,
+                        now(),
+                    ));
+                }
+                if let Some((s0, y0, s1, y1, t0)) = self.view_anim {
+                    let p = (((now() - t0) / 0.26) as f32).clamp(0.0, 1.0);
+                    let e = 1.0 - (1.0 - p).powi(3);
+                    self.state.view.scale = s0 + (s1 - s0) * e;
+                    self.state.view.offset = Vec2::new(0.0, y0 + (y1 - y0) * e);
+                    self.state.view.fit = false;
+                    if p < 1.0 {
+                        ctx.request_repaint();
+                    } else {
+                        self.state.view.fit = true;
+                        self.state.view.offset = Vec2::ZERO;
+                        self.view_anim = None;
+                    }
+                } else if self.state.view.fit {
                     // Web parity: the fit view keeps 32 px of breathing room on
                     // every side (64 px total per axis) before fitting.
-                    let stage = rect.shrink2(Vec2::new(32.0, 32.0));
-                    self.state.view.scale = (stage.width() / w).min(stage.height() / h).min(1.0);
+                    self.state.view.scale = fit_scale;
                     self.state.view.offset = Vec2::ZERO;
                 }
                 let scale = self.state.view.scale;
                 let tex = doc.texture_for(ctx, scale).0;
+                // Image switch: slide in from the arrow direction and fade in.
+                let mut switch_shift = 0.0;
+                let mut switch_alpha = 1.0;
+                if let Some((dir, t0)) = self.switch {
+                    let p = (((now() - t0) / 0.24) as f32).clamp(0.0, 1.0);
+                    let e = 1.0 - (1.0 - p).powi(3);
+                    switch_shift = (1.0 - e) * dir * 70.0;
+                    switch_alpha = e;
+                    if p < 1.0 {
+                        ctx.request_repaint();
+                    } else {
+                        self.switch = None;
+                    }
+                }
                 let center = rect.center() + self.state.view.offset;
                 let img_center = Vec2::new(w / 2.0, h / 2.0);
-                let draw_rect = Rect::from_center_size(center, Vec2::new(w * scale, h * scale));
+                let draw_rect = Rect::from_center_size(
+                    center + Vec2::new(switch_shift, 0.0),
+                    Vec2::new(w * scale, h * scale),
+                );
+                let tint = egui::Color32::WHITE.gamma_multiply(switch_alpha);
                 painter.image(
                     tex.id(),
                     draw_rect,
                     Rect::from_min_max(Pos2::ZERO, egui::pos2(1.0, 1.0)),
-                    egui::Color32::WHITE,
+                    tint,
                 );
                 painter.rect_stroke(
                     draw_rect,
@@ -458,6 +537,11 @@ impl eframe::App for LumenApp {
         ui::info::show(ctx, &mut self.state);
         ui::shortcuts::show(ctx, &mut self.state);
         self.canvas(ctx);
+        if let Some(doc) = self.state.doc.as_mut() {
+            if doc.poll_full(ctx) {
+                ctx.request_repaint_after(std::time::Duration::from_millis(40));
+            }
+        }
         self.drain_actions(ctx);
         if let Some(rx) = self.incoming.take() {
             while let Ok(path) = rx.try_recv() {
@@ -486,7 +570,36 @@ impl eframe::App for LumenApp {
             self.dialog_snap = None;
         }
         if self.state.phase == Phase::Edit && self.state.doc.is_some() {
-            self.refresh_estimate();
+            self.refresh_estimate(Some(ctx));
+        }
+
+        // Phase transitions: remember the start view, then glide to the new fit.
+        if self.state.phase != self.last_phase {
+            self.last_phase = self.state.phase;
+            self.phase_pending = true;
+            ctx.request_repaint();
+        }
+        if self.perf {
+            let dt = ctx.input(|i| i.unstable_dt) * 1000.0;
+            self.frame_ms[self.frame_idx % 30] = dt;
+            self.frame_idx += 1;
+            ctx.request_repaint_after(std::time::Duration::from_millis(16));
+            let n = self.frame_idx.min(30) as f32;
+            let avg: f32 = self.frame_ms.iter().take(n as usize).sum::<f32>() / n;
+            let fps = if avg > 0.0 { 1000.0 / avg } else { 0.0 };
+            let text = format!("{:.0} fps · {:.1} ms/frame", fps, avg);
+            let painter = ctx.layer_painter(egui::LayerId::new(
+                egui::Order::Foreground,
+                egui::Id::new("lumen-perf"),
+            ));
+            let pos = ctx.screen_rect().right_top() + Vec2::new(-190.0, 56.0);
+            painter.text(
+                pos,
+                egui::Align2::LEFT_TOP,
+                text,
+                egui::FontId::monospace(12.0),
+                theme::TEXT,
+            );
         }
     }
 }

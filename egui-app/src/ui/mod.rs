@@ -16,6 +16,7 @@ pub mod format;
 pub mod info;
 pub mod inspector;
 pub mod local;
+pub mod motion;
 pub mod preview;
 pub mod rail;
 pub mod shortcuts;

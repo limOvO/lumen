@@ -1,6 +1,7 @@
 // Document loading: preview-sized decode, EXIF, on-demand full resolution.
 
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::{channel, Receiver};
 use std::sync::Arc;
 
 use egui::{ColorImage, TextureHandle, TextureOptions};
@@ -41,6 +42,7 @@ pub struct Doc {
     decoded_scale: f32,
     preview_tex: Option<TextureHandle>,
     full_tex: Option<TextureHandle>,
+    full_rx: Option<Receiver<Arc<ColorImage>>>,
 }
 
 pub struct LoadOptions {
@@ -169,6 +171,7 @@ impl Doc {
             decoded_scale,
             preview_tex: None,
             full_tex: None,
+            full_rx: None,
         })
     }
 
@@ -193,25 +196,51 @@ impl Doc {
         self.decoded_scale < 0.999 && scale > self.decoded_scale as f32 * 0.98
     }
 
-    pub fn ensure_full(&mut self, ctx: &egui::Context) -> bool {
-        if self.full_tex.is_some() {
-            return true;
+    /// Kick off a background decode of the full-resolution pixels (once).
+    pub fn request_full(&mut self) {
+        if self.full_tex.is_some() || self.full_rx.is_some() {
+            return;
         }
-        let Ok(bytes) = std::fs::read(&self.path) else { return false };
-        let Ok(img) = image::load_from_memory(&bytes) else { return false };
-        let rgba = img.to_rgba8();
-        let (w, h) = rgba.dimensions();
-        let image = Arc::new(ColorImage::from_rgba_unmultiplied(
-            [w as usize, h as usize],
-            rgba.as_raw(),
-        ));
-        self.full_tex = Some(ctx.load_texture("full", (*image).clone(), TextureOptions::LINEAR));
-        drop(image);
-        true
+        let (tx, rx) = channel();
+        let path = self.path.clone();
+        std::thread::spawn(move || {
+            let Ok(bytes) = std::fs::read(&path) else { return };
+            let Ok(img) = image::load_from_memory(&bytes) else { return };
+            let rgba = img.to_rgba8();
+            let (w, h) = rgba.dimensions();
+            let image = Arc::new(ColorImage::from_rgba_unmultiplied(
+                [w as usize, h as usize],
+                rgba.as_raw(),
+            ));
+            let _ = tx.send(image);
+        });
+        self.full_rx = Some(rx);
     }
 
+    /// Upload the worker's result when it arrives. Returns true while pending.
+    pub fn poll_full(&mut self, ctx: &egui::Context) -> bool {
+        let Some(rx) = self.full_rx.as_ref() else { return false };
+        match rx.try_recv() {
+            Ok(image) => {
+                self.full_tex =
+                    Some(ctx.load_texture("full", (*image).clone(), TextureOptions::LINEAR));
+                self.full_rx = None;
+                false
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => true,
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                self.full_rx = None;
+                false
+            }
+        }
+    }
+
+    /// Preview texture, upgraded to full resolution once the worker finishes.
     pub fn texture_for(&mut self, ctx: &egui::Context, scale: f32) -> (TextureHandle, f32) {
-        if self.needs_full(scale) && self.ensure_full(ctx) {
+        if self.needs_full(scale) {
+            if self.full_tex.is_none() {
+                self.request_full();
+            }
             if let Some(tex) = self.full_tex.clone() {
                 return (tex, 1.0);
             }
