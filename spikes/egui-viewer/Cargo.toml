@@ -1,0 +1,20 @@
+[package]
+name = "lumen-egui"
+version = "0.0.1"
+edition = "2021"
+description = "Experimental wgpu + egui preview shell for Lumen"
+
+[[bin]]
+name = "lumen-egui"
+path = "src/main.rs"
+
+[dependencies]
+eframe = { version = "0.32", default-features = false, features = ["wgpu", "default_fonts", "x11"] }
+egui = "0.32"
+wgpu = { version = "25", default-features = false, features = ["vulkan", "gles"] }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif", "bmp", "tiff"] }
+
+[profile.release]
+opt-level = 2
+lto = "thin"
+strip = true

@@ -567,3 +567,18 @@ setPhase(p) / setPeekInfo(on)   // core/state.js
   3. `body.boot-fast`：從檔案管理器開檔時 splash 直接消失（不再 220–300 ms 淡出）。
   4. loader 不再保存 `blob`／`objectURL`。
 - 結果：看到圖片 490→447 ms（小圖）、508→469 ms（12 MP）；12 MP PSS 310→269 MB。
+
+
+## 40. 原生架構 spike（task-32）
+
+- 目的：確認離開 WebView 後能不能「直逼 Loupe」。建立兩個可量測的 spike：
+  `spikes/gtk3-viewer`（Rust + GTK3 + cairo/gdk-pixbuf，0.4 MB）與
+  `spikes/egui-viewer`（Rust + wgpu + egui/eframe，12 MB）。
+- 量測（CachyOS / i9-13900F / Xvfb 1440×900 軟體渲染，4 次中位數）：
+  - 現行 WebView：視窗 81 ms、看到圖 447 ms（1.3 MP）／469 ms（12 MP）、PSS 263／269 MB。
+  - GTK3 spike：54 ms、54／104 ms、**24／95 MB**。
+  - egui + wgpu spike：71 ms、71／129 ms、116／155 MB（GL/llvmpipe；無 Vulkan 裝置）。
+  - Loupe 51.2：146 ms、212／339 ms、113／137 MB。
+- 結論：GTK4 原生外殼可達到甚至優於 Loupe 的佔用與啟動；egui+wgpu 明顯優於 WebView 但比
+  GTK 重（全尺寸 RGBA 上傳＋字型圖集）。若要遷移，建議先做原生 viewer（GTK4），
+  或 egui 走「分塊上傳＋預覽尺寸貼圖」降低成本。詳細分析見 `docs/architecture.md`。

@@ -50,6 +50,10 @@ time-to-photo from 490→447 ms (1400×934) and 508→469 ms (12 MP), and memory
 on 12 MP.
 
 
+Native architecture spikes live in [`spikes/`](spikes/README.md): a GTK3 viewer measures
+**24 MB / 54 ms** for a 1.3 MP photo (12 MP: 95 MB / 104 ms), i.e. Loupe-class footprint without
+the WebView — see [`docs/architecture.md`](docs/architecture.md) for the trade-offs of a migration.
+
 **Honest summary:** Loupe crops, rotates and flips too — and it is faster to get the photo on
 screen and uses less RAM. Lumen is a **4 MB single binary** that opens its window twice as fast,
 and adds what Loupe does not do: freehand/shape/text **annotations**, **resize**, **compress to a

@@ -1,0 +1,20 @@
+[package]
+name = "lumen-native"
+version = "0.0.1"
+edition = "2021"
+description = "Experimental native (GTK3) preview shell for Lumen — no WebView"
+
+[[bin]]
+name = "lumen-native"
+path = "src/main.rs"
+
+[dependencies]
+gtk = "0.18"
+gdk = "0.18"
+gdk-pixbuf = "0.18"
+cairo-rs = "0.18"
+
+[profile.release]
+opt-level = 2
+strip = true
+lto = "thin"
