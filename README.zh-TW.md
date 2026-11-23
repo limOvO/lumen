@@ -13,7 +13,7 @@
 
 ## 為什麼用 Lumen
 
-| | **Lumen** | **Loupe**（GNOME 圖片檢視器 51.2） |
+| | **Lumen** | **影像檢視器**（GNOME，Loupe 51.2） |
 |---|---|---|
 | **技術** | Tauri 2（Rust ＋ 系統 WebView）＋ 原生 HTML/CSS | GTK4 / libadwaita（Rust） |
 | **程式大小** | **4.0 MB** 單一 ELF | 6.8 MB（套件 8.1 MiB） |
@@ -29,6 +29,9 @@
 | **復原** | 80 步，全程非破壞性 | — |
 | **存檔隱私** | 存檔時移除 EXIF/GPS | 不適用（沒有存檔） |
 | **語言** | 繁中、簡中、英文 | 所有 GNOME 語言 |
+
+「影像檢視器」就是 GNOME 應用程式選單對 Loupe 的稱呼（`org.gnome.Loupe.desktop`、`/usr/bin/loupe`），
+也就是這台機器預裝的那個檢視器。
 
 實測環境：CachyOS、13th Gen Intel i9-13900F、Xvfb 1440×900 軟體渲染
 （`GSK_RENDERER=cairo`、`WEBKIT_DISABLE_COMPOSITING_MODE=1`），4 次取中位數；

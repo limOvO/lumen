@@ -14,7 +14,7 @@ preinstalled GNOME image viewer (Loupe).
 
 ## Why Lumen
 
-| | **Lumen** | **Loupe** (GNOME Image Viewer 51.2) |
+| | **Lumen** | **Image Viewer** (GNOME, Loupe 51.2) |
 |---|---|---|
 | **Built with** | Tauri 2 (Rust + system WebView), vanilla HTML/CSS | GTK4 / libadwaita (Rust) |
 | **App binary** | **4.0 MB** single ELF | 6.8 MB (package 8.1 MiB) |
@@ -30,6 +30,9 @@ preinstalled GNOME image viewer (Loupe).
 | **Undo** | 80 steps, edits stay non-destructive | — |
 | **Privacy on save** | EXIF/GPS stripped from the saved file | n/a (no saving) |
 | **Languages** | Traditional Chinese, Simplified Chinese, English | all GNOME languages |
+
+“Image Viewer” is what GNOME’s app menu calls Loupe (`org.gnome.Loupe.desktop`, `/usr/bin/loupe`) —
+the preinstalled viewer on this machine.
 
 Measured on CachyOS, 13th Gen Intel i9-13900F, Xvfb 1440×900 with software rendering
 (`GSK_RENDERER=cairo`, `WEBKIT_DISABLE_COMPOSITING_MODE=1`), median of 4 runs;
