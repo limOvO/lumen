@@ -22,13 +22,14 @@ preinstalled GNOME image viewer (Loupe).
 | **Photo visible** | 490 ms · 508 ms | **214 ms** · **343 ms** |
 | **Memory while viewing** (PSS) | 266 MB · 310 MB | **115 MB** · **140 MB** |
 | **Runtime dependencies** | webkit2gtk-4.1 (141 MiB) + GTK3 (54 MiB) | GTK4 (57 MiB) + libadwaita (5.4) + glycin (19.6) |
-| **What it does** | view, **crop**, **resize**, **compress to a target KB**, **annotate** | view, zoom, rotate, flip |
+| **What it does** | view, **crop**, **resize**, **compress to a target KB**, **annotate** | view, **crop**, rotate, flip |
 | **Annotations** | brush, line, rectangle, ellipse, two-point arrow, text — colour, width, opacity, dashed | — |
-| **Crop / resize / compress** | ✅ | — |
-| **EXIF / GPS panel** | ✅ full EXIF (camera, lens, exposure, GPS) | file properties |
-| **Folder browsing** | ✅ built-in browser, ← → through the folder | one file at a time |
-| **Undo** | 80 steps, edits stay non-destructive | — |
-| **Privacy on save** | EXIF/GPS stripped from the saved file | n/a (no saving) |
+| **Crop** | ✅ free crop + ratio presets, Shift-lock, non-destructive until save | ✅ ratio presets (任意/1:1/4:3/3:2/16:9/5:4), rotate & mirror, applied on save |
+| **Resize / compress to a target KB** | ✅ long-edge limit, target-KB quality search | — |
+| **EXIF / GPS panel** | ✅ full EXIF (camera, lens, exposure, GPS) | ✅ properties panel (dimensions, format, size, dates, ISO, GPS location) |
+| **Folder browsing** | ✅ built-in folder browser, ← → through the folder | ‹ › between neighbouring images, no folder browser |
+| **Undo** | 80-step history, edits stay non-destructive | cancel / reset inside the edit view (no history) |
+| **Privacy on save** | EXIF/GPS stripped from the saved file | overwrites the original in place, no stripping option |
 | **Languages** | Traditional Chinese, Simplified Chinese, English | all GNOME languages |
 
 “Image Viewer” is what GNOME’s app menu calls Loupe (`org.gnome.Loupe.desktop`, `/usr/bin/loupe`) —
@@ -40,9 +41,10 @@ Measured on CachyOS, 13th Gen Intel i9-13900F, Xvfb 1440×900 with software rend
 apps start faster; the table compares like-for-like conditions.
 Reproduce with [`scripts/bench-vs-loupe.sh`](scripts/bench-vs-loupe.sh) (Xvfb + Loupe installed).
 
-**Honest summary:** Loupe is faster to get the photo on screen and uses less RAM.
-Lumen is a **4 MB single binary** that opens its window twice as fast and then does the jobs
-you would otherwise need a second app for — crop, resize, compress to a size limit, annotate.
+**Honest summary:** Loupe crops, rotates and flips too — and it is faster to get the photo on
+screen and uses less RAM. Lumen is a **4 MB single binary** that opens its window twice as fast,
+and adds what Loupe does not do: freehand/shape/text **annotations**, **resize**, **compress to a
+target KB**, an **80-step undo** and **EXIF/GPS stripping** on save.
 
 ## Install
 
