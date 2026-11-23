@@ -3,7 +3,7 @@
 **English** · [繁體中文](README.zh-TW.md)
 
 A lightweight image viewer for Linux that also annotates.
-One 4 MB binary, no runtime, opens in ~55 ms — a drop-in replacement for the
+One 4 MB binary, no runtime, window up in ~80 ms — a drop-in replacement for the
 preinstalled GNOME image viewer (Loupe).
 
 ![Lumen demo: preview → next image → editor → annotations](docs/showcase/demo.gif)
@@ -14,24 +14,32 @@ preinstalled GNOME image viewer (Loupe).
 
 ## Why Lumen
 
-| | **Lumen** | **Loupe** (GNOME Image Viewer) |
+| | **Lumen** | **Loupe** (GNOME Image Viewer 51.2) |
 |---|---|---|
 | **Built with** | Tauri 2 (Rust + system WebView), vanilla HTML/CSS | GTK4 / libadwaita (Rust) |
-| **Footprint** | single **4 MB** ELF, zero runtime deps beyond `webkit2gtk` + GTK3 | full GNOME/GTK4 stack (or Flatpak runtime) |
-| **Cold start** | ~55 ms to window, ~350 ms to the picture | feels instant, but heavier stack |
-| **What it does** | view, **crop**, **resize**, **compress**, **annotate** | view, zoom, rotate, flip |
+| **App binary** | **4.0 MB** single ELF | 6.8 MB (package 8.1 MiB) |
+| **Window appears** | **80 ms** (1400×934) · **83 ms** (12 MP) | 146 ms · 151 ms |
+| **Photo visible** | 490 ms · 508 ms | **214 ms** · **343 ms** |
+| **Memory while viewing** (PSS) | 266 MB · 310 MB | **115 MB** · **140 MB** |
+| **Runtime dependencies** | webkit2gtk-4.1 (141 MiB) + GTK3 (54 MiB) | GTK4 (57 MiB) + libadwaita (5.4) + glycin (19.6) |
+| **What it does** | view, **crop**, **resize**, **compress to a target KB**, **annotate** | view, zoom, rotate, flip |
 | **Annotations** | brush, line, rectangle, ellipse, two-point arrow, text — colour, width, opacity, dashed | — |
-| **Crop / resize / compress to a target KB** | ✅ | — |
-| **EXIF / GPS panel** | ✅ full EXIF, camera/lens/exposure/GPS | basic file properties |
-| **Folder browsing** | ✅ built-in browser, ← → through the folder | open one file at a time |
-| **Undo** | 80 steps, all edits stay non-destructive | — |
+| **Crop / resize / compress** | ✅ | — |
+| **EXIF / GPS panel** | ✅ full EXIF (camera, lens, exposure, GPS) | file properties |
+| **Folder browsing** | ✅ built-in browser, ← → through the folder | one file at a time |
+| **Undo** | 80 steps, edits stay non-destructive | — |
 | **Privacy on save** | EXIF/GPS stripped from the saved file | n/a (no saving) |
-| **Languages** | Traditional Chinese, Simplified Chinese, English (follows OS) | all GNOME languages |
-| **Desktop integration** | one script: app menu entry, icon, desktop shortcut, optional default viewer | ships with GNOME |
+| **Languages** | Traditional Chinese, Simplified Chinese, English | all GNOME languages |
 
-Loupe is a fine viewer, and as a GNOME core app it integrates deeper. Lumen is for when you
-want a *smaller, faster, zero-dependency* viewer that can also crop, resize, compress
-and annotate without opening a second app.
+Measured on CachyOS, 13th Gen Intel i9-13900F, Xvfb 1440×900 with software rendering
+(`GSK_RENDERER=cairo`, `WEBKIT_DISABLE_COMPOSITING_MODE=1`), median of 4 runs;
+“photo visible” = first captured frame (60 fps) showing the picture. On a GPU desktop both
+apps start faster; the table compares like-for-like conditions.
+Reproduce with [`scripts/bench-vs-loupe.sh`](scripts/bench-vs-loupe.sh) (Xvfb + Loupe installed).
+
+**Honest summary:** Loupe is faster to get the photo on screen and uses less RAM.
+Lumen is a **4 MB single binary** that opens its window twice as fast and then does the jobs
+you would otherwise need a second app for — crop, resize, compress to a size limit, annotate.
 
 ## Install
 
