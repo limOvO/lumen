@@ -11,6 +11,26 @@
 
 ![Lumen 預覽階段](docs/screenshot-preview.png)
 
+## 圖片展示
+
+![Lumen 操作示範：預覽 → 方向鍵換圖 → 進入編輯 → 畫筆／矩形註譯 → 回預覽](docs/showcase/demo.gif)
+
+| 預覽（乾淨檢視） | 編輯（工具列＋樣式條） |
+|---|---|
+| ![預覽](docs/showcase/preview.png) | ![編輯](docs/showcase/edit.png) |
+
+| 裁切（比例預設＋三分線） | 調整（尺寸／壓縮到目標 KB） |
+|---|---|
+| ![裁切](docs/showcase/crop.png) | ![調整](docs/showcase/adjust.png) |
+
+| 檔案資訊（EXIF） | 快捷鍵總覽 |
+|---|---|
+| ![EXIF](docs/showcase/exif.png) | ![快捷鍵](docs/showcase/shortcuts.png) |
+
+| 內建資料夾瀏覽 | 空狀態 |
+|---|---|
+| ![資料夾](docs/showcase/browser.png) | ![空狀態](docs/showcase/empty.png) |
+
 ## 啟動
 
 - 視窗在 Rust `setup()` 就顯示（此時是深色底 `#101012`，不會白屏），實測**程序啟動後約 55ms 視窗就出現**；
@@ -34,7 +54,6 @@
 預覽是「看圖」而不是「畫布」：背景是純深色，只有透明圖（PNG／WebP／GIF／SVG）的透明區域才會看到棋盤格。
 縮放的最小值就是「適應視窗」——不會縮成比視窗還小；一旦放大，就可以直接按住圖片拖曳查看，拖到邊界會自動停住。
 
-![Lumen 編輯階段](docs/screenshot-edit.png)
 
 ## 介面
 
