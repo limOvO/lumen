@@ -1,7 +1,7 @@
 // Right-side inspector for the editor: 資訊 / 調整 / 裁切 tabs.
 // The info page is shared with the preview peek card (info.rs).
 
-use egui::{Align, Color32, FontId, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, Vec2};
+use egui::{Align, FontId, Pos2, Rect, Sense, Stroke, Ui, Vec2};
 
 use crate::i18n::Locale;
 use crate::state::{AppState, OutputFormat, Phase, StatusKind, Tool, UiAction};
@@ -10,8 +10,6 @@ use crate::theme;
 use super::format::{self, RatioPreset};
 use super::local::{self, PanelTab};
 use super::widgets::{self, Icon};
-
-const TRACK_W: f32 = 96.0;
 
 pub fn show(ctx: &egui::Context, state: &mut AppState) {
     if state.phase != Phase::Edit {
@@ -208,47 +206,73 @@ pub fn adjust_page(ui: &mut Ui, state: &mut AppState) {
         return;
     };
     let (dw, dh) = (doc.width, doc.height);
-    let base = match state.crop {
-        Some(c) => (c.w.round().max(1.0) as u32, c.h.round().max(1.0) as u32),
-        None => (dw, dh),
-    };
-    let out = format::output_dims(base.0, base.1, state.output.max_dim);
-
-    // 輸出尺寸 + quick percentages ------------------------------------------
+    // Auto resolves against the document; quality only goes away for PNG.
+    let resolved = state.output.format.resolve(doc);
+    let target = crate::export::target(
+        dw,
+        dh,
+        state.crop,
+        state.output.max_dim,
+        state.output.scale,
+    );
+    let (ow, oh) = (target.out_w, target.out_h);
+    // Base = the clamped crop (before scale / max_dim), like `baseDims()` in the web build.
+    let base = (
+        (target.w.round().max(1.0)) as u32,
+        (target.h.round().max(1.0)) as u32,
+    );
     let base_long = base.0.max(base.1);
-    widgets::field_label(ui, t.tr("輸出尺寸"));
+
+    // 尺寸（像素）: editable W/H + ratio lock + percentage chips ------------
+    widgets::field_label(ui, t.tr("尺寸（像素）"));
     ui.add_space(5.0);
-    let dims = format!("{} × {} px", out.0, out.1);
-    let (rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 26.0), Sense::hover());
-    let painter = ui.painter();
-    painter.text(
-        Pos2::new(rect.left(), rect.center().y),
-        egui::Align2::LEFT_CENTER,
-        format!("{} →", format::ratio_label(base.0, base.1)),
-        FontId::proportional(10.5),
-        theme::DIM,
-    );
-    painter.text(
-        Pos2::new(rect.right(), rect.center().y),
-        egui::Align2::RIGHT_CENTER,
-        dims,
-        FontId::monospace(11.0),
-        theme::TEXT,
-    );
-    ui.add_space(5.0);
+    let lock_on = local::get(ui.ctx(), |l| l.lock_ratio);
+    let mut edited = None;
     ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 5.0;
-        for (pct, max_dim) in [
-            (25u32, Some((base_long / 4).max(1))),
-            (50u32, Some((base_long / 2).max(1))),
-            (100u32, None),
-        ] {
-            let active = state.output.max_dim == max_dim;
-            if widgets::chip(ui, &format!("{pct}%"), active, true).clicked() {
-                state.output.max_dim = max_dim;
+        ui.spacing_mut().item_spacing.x = 6.0;
+        // 2 fields + "×" + lock + 3 gaps must fit the 276px panel content width.
+        let field_w = ((ui.available_width() - 30.0 - 10.0 - 18.0) / 2.0).max(64.0);
+        if let Some(v) = widgets::number_field(ui, "out-w", Some(ow), "", true, field_w) {
+            edited = Some((v, true));
+        }
+        widgets::text(ui, "×", 10.5, widgets::white(120));
+        if let Some(v) = widgets::number_field(ui, "out-h", Some(oh), "", true, field_w) {
+            edited = Some((v, false));
+        }
+        let tip = if lock_on { t.tr("已鎖定長寬比") } else { t.tr("已解除長寬比鎖定") };
+        if widgets::icon_button_active(ui, Icon::Lock, lock_on, &tip).clicked() {
+            local::with(ui.ctx(), |l| l.lock_ratio = !l.lock_ratio);
+            // Locked keeps a proportional long-edge cap; unlocked clears it back
+            // to the native size (the web build's free-form mode).
+            if lock_on {
+                state.output.max_dim = None;
+            } else {
+                state.output.max_dim = Some(ow.max(oh).max(1));
+            }
+            state.output.scale = None;
+        }
+    });
+    if let Some((value, width_axis)) = edited {
+        let (max_dim, scale) = format::dimension_to_output(base, value, width_axis);
+        state.output.max_dim = max_dim;
+        state.output.scale = scale;
+    }
+
+    ui.add_space(6.0);
+    let pct = ((ow.max(oh) as f32 / base_long.max(1) as f32) * 100.0).round() as u32;
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing = Vec2::new(5.0, 5.0);
+        for p in [25u32, 50, 100, 150, 200] {
+            let active = pct == p;
+            if widgets::chip(ui, &format!("{p}%"), active, true).clicked() {
+                state.output.max_dim = None;
+                state.output.scale =
+                    if p == 100 { None } else { Some(p as f32 / 100.0) };
             }
         }
     });
+    ui.add_space(4.0);
+    widgets::hint(ui, format!("→ {} × {} px", ow, oh));
 
     // 長邊上限 --------------------------------------------------------------
     ui.add_space(14.0);
@@ -268,17 +292,24 @@ pub fn adjust_page(ui: &mut Ui, state: &mut AppState) {
             widgets::number_field(ui, "max-dim", state.output.max_dim, &t.tr("不限制"), true, w)
         {
             state.output.max_dim = Some(v);
+            state.output.scale = None;
         }
         widgets::text(ui, "px", 10.5, widgets::white(110));
     });
 
     // 輸出格式 --------------------------------------------------------------
+    ui.add_space(14.0);
     widgets::field_label(ui, t.tr("輸出格式"));
     ui.add_space(5.0);
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 5.0;
-        for f in [OutputFormat::Jpeg, OutputFormat::Png, OutputFormat::Webp] {
-            if widgets::chip(ui, f.label(), state.output.format == f, true).clicked() {
+        for f in [
+            OutputFormat::Auto,
+            OutputFormat::Jpeg,
+            OutputFormat::Png,
+            OutputFormat::Webp,
+        ] {
+            if widgets::chip(ui, &t.tr(f.label()), state.output.format == f, true).clicked() {
                 state.output.format = f;
             }
         }
@@ -286,7 +317,7 @@ pub fn adjust_page(ui: &mut Ui, state: &mut AppState) {
 
     // 品質 ------------------------------------------------------------------
     ui.add_space(14.0);
-    let quality_disabled = state.output.format == OutputFormat::Png;
+    let quality_disabled = resolved == OutputFormat::Png;
     ui.horizontal(|ui| {
         widgets::field_label(ui, t.tr("品質"));
         ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
@@ -331,14 +362,18 @@ pub fn adjust_page(ui: &mut Ui, state: &mut AppState) {
     ui.add_space(14.0);
     widgets::field_label(ui, t.tr("預估大小"));
     ui.add_space(5.0);
+    let estimate_text = match state.estimate {
+        Some(est) => format::format_estimate(Some(est.bytes), est.width, est.height),
+        None => "—".to_string(),
+    };
     ui.horizontal(|ui| {
         if widgets::ghost_block_sized(ui, &t.tr("估算大小"), 96.0, true).clicked() {
             state.push_action(UiAction::Estimate);
         }
         ui.add_space(10.0);
-        // The estimate backend is not connected yet — always "—" for now.
-        widgets::text(ui, "—", 10.5, theme::DIM);
+        widgets::text(ui, &estimate_text, 10.5, theme::DIM);
     });
+
     // 匯出 ------------------------------------------------------------------
     ui.add_space(16.0);
     if widgets::primary_block(ui, &t.tr("匯出…"), true).clicked() {
@@ -449,7 +484,6 @@ pub fn crop_page(ui: &mut Ui, state: &mut AppState) {
     }
 }
 
-/// Shared helper: paint the active page for a given tab.
 pub fn page(ui: &mut Ui, tab: PanelTab, state: &mut AppState) {
     ui.add_space(2.0);
     let margin = egui::Margin::symmetric(12, 12);
@@ -463,21 +497,4 @@ pub fn page(ui: &mut Ui, tab: PanelTab, state: &mut AppState) {
         // Keep the last row clear of the status-bar overlay.
         ui.add_space(theme::STATUS_H + 4.0);
     });
-}
-
-/// Unused marker to keep the themed colour imports available for future pages.
-#[allow(dead_code)]
-fn _palette() -> (Color32, StrokeKind) {
-    (theme::PANEL, StrokeKind::Inside)
-}
-
-/// Helpers used by other chrome modules that render a page outside the panel.
-pub fn draw_panel_border(ui: &Ui) {
-    let r = ui.max_rect();
-    ui.painter().vline(r.left(), r.y_range(), Stroke::new(1.0_f32, widgets::white(26)));
-}
-
-/// Small icon used by the preview card header.
-pub fn header_icon() -> Icon {
-    Icon::Info
 }

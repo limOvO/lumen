@@ -2,7 +2,7 @@
 // swatches + custom colour, dashed toggle (hidden for text), width, opacity and
 // font size. Asleep (dimmed) until the pointer approaches, like the web build.
 
-use egui::{Align, Align2, Color32, CornerRadius, FontId, Id, Layout, Order, Pos2, Rect, Sense, Stroke, Vec2};
+use egui::{Align, Align2, Color32, CornerRadius, Id, Layout, Order, Rect, Sense, Stroke, Vec2};
 
 use crate::state::{AppState, Phase, Tool};
 use crate::theme;
@@ -160,22 +160,5 @@ fn slider_stack(
             widgets::slider_label(ui, label, value_text, 96.0);
             widgets::slider(ui, value, min, max, 96.0, true);
         },
-    );
-}
-
-/// The colour list as `(r,g,b)` triples, useful for tests.
-#[allow(dead_code)]
-pub fn tool_color_rgb() -> Vec<(u8, u8, u8)> {
-    TOOL_COLORS.iter().map(|c| (c.r(), c.g(), c.b())).collect()
-}
-
-#[allow(dead_code)]
-fn _unused(ui: &mut egui::Ui) {
-    ui.painter().text(
-        Pos2::ZERO,
-        Align2::LEFT_TOP,
-        "",
-        FontId::proportional(10.0),
-        theme::TEXT,
     );
 }

@@ -57,6 +57,7 @@ impl Tool {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum OutputFormat {
+    Auto,
     Jpeg,
     Png,
     Webp,
@@ -65,6 +66,7 @@ pub enum OutputFormat {
 impl OutputFormat {
     pub fn label(self) -> &'static str {
         match self {
+            OutputFormat::Auto => "原格式",
             OutputFormat::Jpeg => "JPEG",
             OutputFormat::Png => "PNG",
             OutputFormat::Webp => "WEBP",
@@ -72,9 +74,26 @@ impl OutputFormat {
     }
     pub fn ext(self) -> &'static str {
         match self {
+            OutputFormat::Auto => "jpg",
             OutputFormat::Jpeg => "jpg",
             OutputFormat::Png => "png",
             OutputFormat::Webp => "webp",
+        }
+    }
+
+    /// Resolve `Auto` to the concrete encoder for a document.
+    pub fn resolve(self, doc: &Doc) -> OutputFormat {
+        if self != OutputFormat::Auto {
+            return self;
+        }
+        let name = doc.name.to_ascii_lowercase();
+        let format = doc.format.to_ascii_lowercase();
+        if format.contains("png") || name.ends_with(".png") {
+            OutputFormat::Png
+        } else if format.contains("webp") || name.ends_with(".webp") {
+            OutputFormat::Webp
+        } else {
+            OutputFormat::Jpeg
         }
     }
 }
@@ -84,12 +103,14 @@ pub struct OutputSettings {
     pub format: OutputFormat,
     pub quality: u8,
     pub max_dim: Option<u32>,
+    /// Explicit output scale (1.0 = original pixels; >1 upscales, <1 shrinks).
+    pub scale: Option<f32>,
     pub target_kb: Option<u32>,
 }
 
 impl Default for OutputSettings {
     fn default() -> Self {
-        Self { format: OutputFormat::Jpeg, quality: 90, max_dim: None, target_kb: None }
+        Self { format: OutputFormat::Auto, quality: 90, max_dim: None, scale: None, target_kb: None }
     }
 }
 

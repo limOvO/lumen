@@ -641,6 +641,9 @@ pub fn try_encode(
     }
     let mut out = Vec::new();
     match format {
+        OutputFormat::Auto => {
+            return Err("輸出格式尚未解析（Auto）".into());
+        }
         OutputFormat::Jpeg => {
             let q = quality.clamp(1, 100);
             let rgb = white_backed_rgb(image);
@@ -715,14 +718,15 @@ pub fn estimate_size(
     output: &OutputSettings,
     crop: Option<CropRect>,
 ) -> Estimated {
-    let t = target(doc.width, doc.height, crop, output.max_dim, None);
+    let t = target(doc.width, doc.height, crop, output.max_dim, output.scale);
+    let format = output.format.resolve(doc);
     let Some(base) = decode_full(doc) else {
         return Estimated { bytes: 0, width: t.out_w, height: t.out_h };
     };
     let preview_w = (t.out_w / 2).max(1);
     let preview_h = (t.out_h / 2).max(1);
     let preview = render(&base, objects, &t, preview_w, preview_h);
-    let bytes = encode(&preview, output.format, output.quality).len() as u64;
+    let bytes = encode(&preview, format, output.quality).len() as u64;
     let ratio = (t.out_w as u64 * t.out_h as u64) / (preview_w as u64 * preview_h as u64).max(1);
     Estimated { bytes: (bytes * ratio).max(1), width: t.out_w, height: t.out_h }
 }
@@ -1083,6 +1087,7 @@ mod tests {
             format: OutputFormat::Jpeg,
             quality: 90,
             max_dim: Some(100),
+            scale: None,
             target_kb: None,
         };
         let est = estimate_size(&doc, &[], &out, None);

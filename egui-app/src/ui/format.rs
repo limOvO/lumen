@@ -120,6 +120,7 @@ impl RatioPreset {
 }
 
 /// Output dimensions after a long-edge cap (`max_dim`), 1px minimum.
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn output_dims(w: u32, h: u32, max_dim: Option<u32>) -> (u32, u32) {
     if w == 0 || h == 0 {
         return (0, 0);
@@ -133,6 +134,27 @@ pub fn output_dims(w: u32, h: u32, max_dim: Option<u32>) -> (u32, u32) {
             )
         }
         _ => (w, h),
+    }
+}
+
+/// Resolve a W/H edit the way the web `applyDimension()` does: editing a
+/// dimension larger than the source becomes an explicit upscale (`scale`),
+/// while a smaller value becomes a long-edge cap (`max_dim`). Returns
+/// `(max_dim, scale)`; exactly one of them is `Some` and the other is cleared.
+pub fn dimension_to_output(
+    base: (u32, u32),
+    value: u32,
+    width_axis: bool,
+) -> (Option<u32>, Option<f32>) {
+    let (bw, bh) = (base.0.max(1) as f32, base.1.max(1) as f32);
+    let base_side = if width_axis { bw } else { bh };
+    let long = bw.max(bh);
+    let scale = value.max(1) as f32 / base_side;
+    let target_long = long * scale;
+    if target_long >= long {
+        (None, Some(scale.clamp(0.01, 16.0)))
+    } else {
+        (Some((target_long.round() as u32).max(1)), None)
     }
 }
 
@@ -206,6 +228,21 @@ mod tests {
         // Degenerate inputs never produce a zero edge.
         assert_eq!(output_dims(0, 600, Some(100)), (0, 0));
         assert_eq!(output_dims(10_000, 1, Some(100)), (100, 1));
+    }
+
+    #[test]
+    fn dimension_edits_become_max_dim_or_scale() {
+        let base = (1400, 934);
+        // Shrinking on the width axis caps the long edge.
+        assert_eq!(dimension_to_output(base, 700, true), (Some(700), None));
+        // Shrinking on the height axis keeps the same output long edge.
+        assert_eq!(dimension_to_output(base, 467, false), (Some(700), None));
+        // Growing becomes an explicit upscale.
+        let (max_dim, scale) = dimension_to_output(base, 2800, true);
+        assert_eq!(max_dim, None);
+        assert!((scale.unwrap() - 2.0).abs() < 1e-6);
+        // Editing to the native size clears both.
+        assert_eq!(dimension_to_output(base, 1400, true), (None, Some(1.0)));
     }
 
     #[test]

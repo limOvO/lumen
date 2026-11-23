@@ -2,7 +2,7 @@
 // information as the editor's 資訊 tab. Opens on the ⓘ dock button / I key,
 // closes when clicking anywhere outside (or Esc, handled by app.rs).
 
-use egui::{Align2, Color32, CornerRadius, Id, Order, Pos2, Rect, Sense, Vec2};
+use egui::{Color32, CornerRadius, Id, Order, Pos2, Rect, Vec2};
 
 use crate::state::{AppState, Phase};
 use crate::theme;
@@ -79,22 +79,4 @@ pub fn show(ctx: &egui::Context, state: &mut AppState) {
     if (t - 0.0).abs() < 0.999 {
         ctx.request_repaint();
     }
-}
-
-/// Distances used by the sliding animation (kept for tests / documentation).
-#[allow(dead_code)]
-pub fn slide_offset() -> Vec2 {
-    Vec2::new(18.0, 0.0)
-}
-
-#[allow(dead_code)]
-fn _unused(ui: &mut egui::Ui) {
-    ui.painter().text(
-        Pos2::ZERO,
-        Align2::LEFT_TOP,
-        "",
-        egui::FontId::proportional(10.0),
-        theme::TEXT,
-    );
-    let _ = Sense::hover();
 }

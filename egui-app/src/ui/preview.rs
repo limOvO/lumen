@@ -113,7 +113,7 @@ pub fn chrome(ctx: &egui::Context, state: &mut AppState) {
         let pointer = ctx.input(|i| i.pointer.hover_pos());
         let near = |x: f32| {
             pointer
-                .map(|p| x < screen.left() + 120.0 || x > screen.right() - 120.0)
+                .map(|_| x < screen.left() + 120.0 || x > screen.right() - 120.0)
                 .unwrap_or(false)
         };
         if pointer.map(|p| near(p.x)).unwrap_or(false) {

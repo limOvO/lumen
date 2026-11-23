@@ -26,8 +26,6 @@ pub const SURFACE_2: Color32 = Color32::from_rgb(57, 57, 58);
 pub const RAIL: Color32 = Color32::from_rgb(28, 28, 30);
 /// Floating pill background: rgba(21, 21, 23, 0.86) over the canvas.
 pub const CHIP_BG: Color32 = Color32::from_rgb(21, 21, 23);
-/// Floating annotation dock background: rgba(24, 24, 26, 0.94).
-pub const DOCK_BG: Color32 = Color32::from_rgb(24, 24, 26);
 /// Tool semantics red (--tool).
 pub const TOOL: Color32 = Color32::from_rgb(255, 92, 92);
 
@@ -72,8 +70,6 @@ pub enum Icon {
     Redo,
     Panel,
     Help,
-    ChevronDown,
-    Check,
     Close,
     Lock,
     Prev,
@@ -274,8 +270,6 @@ pub fn paint_icon(painter: &Painter, rect: Rect, icon: Icon, color: Color32, px:
             poly(path);
             dot((12.0, 16.6), 0.9);
         }
-        Icon::ChevronDown => poly(vec![p(6.0, 9.3), p(12.0, 15.0), p(18.0, 9.3)]),
-        Icon::Check => poly(vec![p(5.5, 12.5), p(9.7, 16.6), p(18.5, 7.0)]),
         Icon::Close => {
             seg((6.0, 6.0), (18.0, 18.0));
             seg((18.0, 6.0), (6.0, 18.0));
@@ -316,23 +310,6 @@ pub fn paint_icon(painter: &Painter, rect: Rect, icon: Icon, color: Color32, px:
 
 pub fn text(ui: &mut Ui, s: impl Into<String>, size: f32, color: Color32) {
     ui.label(egui::RichText::new(s.into()).size(size).color(color));
-}
-
-/// Paint-only label that does not allocate an interactive widget (for rows we
-/// draw ourselves). Returns the painted rect.
-pub fn paint_text(
-    painter: &Painter,
-    pos: Pos2,
-    align: Align2,
-    s: &str,
-    size: f32,
-    color: Color32,
-) -> Rect {
-    painter.text(pos, align, s, FontId::proportional(size), color)
-}
-
-pub fn small_label(ui: &mut Ui, s: impl Into<String>) {
-    text(ui, s, 11.0, theme::DIM);
 }
 
 pub fn field_label(ui: &mut Ui, s: impl Into<String>) {
@@ -410,14 +387,6 @@ pub struct Btn {
     /// Red tool accent (the compare toggle).
     pub accent: bool,
     pub block: bool,
-}
-
-fn hover_fill(active: bool) -> Color32 {
-    if active {
-        white(22)
-    } else {
-        Color32::TRANSPARENT
-    }
 }
 
 fn paint_button_base(
@@ -514,6 +483,29 @@ pub fn icon_button(ui: &mut Ui, icon: Icon, tip: &str, enabled: bool) -> Respons
     let color = paint_button_base(ui, rect, &resp, enabled, Btn::default(), CornerRadius::same(RADIUS));
     paint_icon(ui.painter(), Rect::from_center_size(rect.center(), Vec2::splat(16.0)), icon, color, 1.8);
     finish(ui, rect, resp, enabled).on_hover_text(tip)
+}
+
+/// A square icon button that shows an active (pressed) fill.
+pub fn icon_button_active(ui: &mut Ui, icon: Icon, active: bool, tip: &str) -> Response {
+    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(BTN_H), Sense::click());
+    let hovered = resp.hovered();
+    let painter = ui.painter();
+    if active || hovered {
+        painter.rect_filled(
+            rect,
+            CornerRadius::same(RADIUS),
+            if active { white(24) } else { white(15) },
+        );
+    }
+    let color = if active || hovered { theme::TEXT } else { theme::DIM };
+    paint_icon(
+        painter,
+        Rect::from_center_size(rect.center(), Vec2::splat(15.0)),
+        icon,
+        color,
+        1.9,
+    );
+    finish(ui, rect, resp, true).on_hover_text(tip)
 }
 
 /// Rounded pill icon button used by the floating preview dock (30×30).
@@ -715,49 +707,11 @@ pub fn chip(ui: &mut Ui, label: &str, active: bool, enabled: bool) -> Response {
     finish(ui, rect, resp, enabled)
 }
 
-/// A tab label inside the inspector tab strip (no fill; active text + weight).
-pub fn tab_label(ui: &mut Ui, label: &str, active: bool) -> Response {
-    let (rect, resp) = ui.allocate_exact_size(
-        Vec2::new(ui.available_width(), 32.0),
-        Sense::click(),
-    );
-    let painter = ui.painter();
-    let color = if resp.hovered() || active { theme::TEXT } else { theme::DIM };
-    painter.text(
-        rect.center(),
-        Align2::CENTER_CENTER,
-        label,
-        FontId::proportional(12.0),
-        color,
-    );
-    if active {
-        // Weight 600 approximation: repaint with a hair of extra spread.
-        painter.text(
-            rect.center() + Vec2::new(0.35, 0.0),
-            Align2::CENTER_CENTER,
-            label,
-            FontId::proportional(12.0),
-            color,
-        );
-    }
-    finish(ui, rect, resp, true)
-}
-
 pub fn sep_v(ui: &mut Ui) {
     let (rect, _) = ui.allocate_exact_size(Vec2::new(9.0, 18.0), Sense::hover());
     ui.painter().vline(
         rect.center().x,
         rect.y_range(),
-        Stroke::new(1.0_f32, white(26)),
-    );
-}
-
-pub fn sep_h(ui: &mut Ui, pad: f32) {
-    let (rect, _) =
-        ui.allocate_exact_size(Vec2::new(ui.available_width(), 1.0 + pad * 2.0), Sense::hover());
-    ui.painter().hline(
-        rect.x_range(),
-        rect.center().y,
         Stroke::new(1.0_f32, white(26)),
     );
 }
@@ -917,7 +871,8 @@ pub fn number_field(
             .text_color(theme::TEXT)
             .background_color(theme::BG)
             .margin(egui::Margin::symmetric(8, 6))
-            .desired_width(desired)
+            // `desired` is the total widget width: TextEdit adds 8px padding per side.
+            .desired_width((desired - 16.0).max(24.0))
             .min_size(Vec2::new(desired, 26.0))
             .vertical_align(Align::Center),
     );
@@ -965,36 +920,6 @@ fn finish(ui: &mut Ui, rect: Rect, resp: Response, enabled: bool) -> Response {
         );
     }
     resp
-}
-
-// ---------------------------------------------------------------------------
-// kbd chip (shortcuts window)
-// ---------------------------------------------------------------------------
-
-pub fn kbd(ui: &mut Ui, label: &str) {
-    let galley = ui
-        .painter()
-        .layout_no_wrap(label.to_owned(), FontId::monospace(9.5), theme::TEXT);
-    let w = (galley.size().x + 12.0).max(21.0);
-    let (rect, _) = ui.allocate_exact_size(Vec2::new(w, 21.0), Sense::hover());
-    let painter = ui.painter();
-    painter.rect_filled(rect, CornerRadius::same(5), SURFACE_2);
-    painter.rect_stroke(
-        rect,
-        CornerRadius::same(5),
-        Stroke::new(1.0_f32, white(46)),
-        StrokeKind::Inside,
-    );
-    painter.galley(
-        Pos2::new(rect.center().x - galley.size().x / 2.0, rect.center().y - galley.size().y / 2.0),
-        galley,
-        theme::TEXT,
-    );
-}
-
-/// Vertical spacing that is safe inside `ui.available_height()` loops.
-pub fn gap(ui: &mut Ui, h: f32) {
-    ui.add_space(h);
 }
 
 /// Place a child UI at an absolute rect inside the current layer.

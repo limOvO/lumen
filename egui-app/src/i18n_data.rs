@@ -237,6 +237,9 @@ pub static ZH_HANS: &[(&str, &str)] = &[
     ("黃色", "黄色"),
     ("黑色", "黑色"),
     ("點擊適應視窗（0）", "点击适应视窗（0）"),
+    ("前往", "前往"),
+    ("路徑不存在", "路径不存在"),
+    ("不是資料夾", "不是资料夹"),
 ];
 
 pub static EN: &[(&str, &str)] = &[
@@ -476,4 +479,7 @@ pub static EN: &[(&str, &str)] = &[
     ("黃色", "Yellow"),
     ("黑色", "Black"),
     ("點擊適應視窗（0）", "Click to fit to window (0)"),
+    ("前往", "Go"),
+    ("路徑不存在", "Path does not exist"),
+    ("不是資料夾", "Not a folder"),
 ];

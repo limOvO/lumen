@@ -43,12 +43,6 @@ pub fn zoom_fit(state: &mut AppState) {
     state.view.fit = true;
 }
 
-pub fn zoom_actual(state: &mut AppState) {
-    state.view.fit = false;
-    state.view.scale = 1.0;
-    state.view.offset = Vec2::ZERO;
-}
-
 fn hud_icon(ui: &mut Ui, icon: Icon, enabled: bool) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(Vec2::splat(30.0), Sense::click());
     let hovered = enabled && resp.hovered();

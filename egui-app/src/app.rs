@@ -5,9 +5,12 @@ use std::path::{Path, PathBuf};
 
 use egui::{Pos2, Rect, Vec2};
 
+use crate::browser::Browser;
+use crate::dialogs::{SaveChoice, SaveDialog};
 use crate::doc::{siblings, Doc, LoadOptions};
 use crate::interaction::{self, CanvasView};
 use crate::state::{AppState, Phase, StatusKind, UiAction};
+use crate::state::OutputFormat;
 use crate::{export, save};
 use crate::{theme, ui};
 
@@ -16,6 +19,9 @@ pub struct LumenApp {
     estimate_key: String,
     estimate_at: f64,
     focused_once: bool,
+    pub browser: Browser,
+    pub dialog: SaveDialog,
+    dialog_snap: Option<(OutputFormat, u8, Option<u32>, Option<f32>, Option<u32>)>,
 }
 
 impl LumenApp {
@@ -25,6 +31,17 @@ impl LumenApp {
             estimate_key: String::new(),
             estimate_at: 0.0,
             focused_once: false,
+            browser: {
+                let mut b = Browser::new(None);
+                b.open = false;
+                b
+            },
+            dialog: {
+                let mut d = SaveDialog::new(Path::new("image.jpg"));
+                d.open = false;
+                d
+            },
+            dialog_snap: None,
         };
         if let Some(path) = initial {
             app.open(&path, None);
@@ -79,7 +96,7 @@ impl LumenApp {
 
     fn handle_keys(&mut self, ctx: &egui::Context) {
         use egui::Key;
-        let (left, right, plus, minus, zero, info, edit, esc, full, undo, redo, del, shortcuts) =
+        let (left, right, plus, minus, zero, info, edit, esc, full, _undo_kp, _redo_kp, del, shortcuts) =
             ctx.input(|i| {
                 (
                     i.key_pressed(Key::ArrowLeft),
@@ -97,6 +114,35 @@ impl LumenApp {
                     i.key_pressed(Key::Questionmark),
                 )
             });
+        // Modifier chords must be read from the Key event itself: X11 sends the
+        // modifier and key state separately and a frame boundary can split them.
+        let chords: Vec<(Key, egui::Modifiers)> = ctx.input(|i| {
+            i.events
+                .iter()
+                .filter_map(|e| match e {
+                    egui::Event::Key { key, pressed: true, modifiers, .. } => Some((*key, *modifiers)),
+                    _ => None,
+                })
+                .collect()
+        });
+        let chord = |k: Key, cmd: bool, shift: bool| {
+            chords
+                .iter()
+                .any(|(key, m)| *key == k && m.command == cmd && m.shift == shift)
+        };
+        let open_acc = chord(Key::O, true, false);
+        let save_acc = chord(Key::S, true, false);
+        let save_as_acc = chord(Key::S, true, true);
+        let (undo, redo) = (chord(Key::Z, true, false), chord(Key::Z, true, true));
+        if open_acc {
+            self.state.push_action(UiAction::Open);
+        }
+        if save_acc {
+            self.state.push_action(UiAction::Save);
+        }
+        if save_as_acc {
+            self.state.push_action(UiAction::SaveAs);
+        }
         // The canvas owns Esc while a two-click gesture / inline text editor is
         // active, and owns Delete/undo while typing (otherwise Esc would leave
         // the editor and Backspace would delete the selected annotation).
@@ -214,13 +260,13 @@ impl LumenApp {
             self.state.status("先開啟一張圖片", StatusKind::Info, now());
             return;
         };
-        let fmt = self.state.output.format;
+        let fmt = self.state.output.format.resolve(doc);
         let flat = export::flatten(
             doc,
             &self.state.objects,
             self.state.crop,
             self.state.output.max_dim,
-            None,
+            self.state.output.scale,
         );
         let bytes = match self.state.output.target_kb {
             Some(kb) => export::encode_to_target(&flat.image, fmt, kb),
@@ -235,21 +281,61 @@ impl LumenApp {
         }
     }
 
+    fn open_save_dialog(&mut self) {
+        let Some(doc) = self.state.doc.as_ref() else {
+            self.state.status("先開啟一張圖片", StatusKind::Info, now());
+            return;
+        };
+        let format = self.state.output.format.resolve(doc);
+        let suggested = save::suggested_name(doc, format);
+        let output = self.state.output.clone();
+        self.dialog.open_with(&suggested, &output);
+    }
+
+    fn save_choice(&mut self, ctx: &egui::Context, choice: SaveChoice) {
+        let Some(doc) = self.state.doc.as_ref() else { return };
+        let flat = export::flatten(
+            doc,
+            &self.state.objects,
+            self.state.crop,
+            choice.output.max_dim,
+            choice.output.scale,
+        );
+        let bytes = match choice.output.target_kb {
+            Some(kb) => export::encode_to_target(&flat.image, choice.output.format, kb),
+            None => export::encode(&flat.image, choice.output.format, choice.output.quality),
+        };
+        match save::save_as(&choice.path, &bytes) {
+            Ok(path) => {
+                let size = bytes.len();
+                self.state.output = choice.output;
+                self.open(&path, Some(ctx));
+                self.state.dirty = false;
+                self.state.status(
+                    format!("已儲存 · {} × {} px · {:.1} KB", flat.width, flat.height, size as f64 / 1024.0),
+                    StatusKind::Ok,
+                    now(),
+                );
+            }
+            Err(err) => self.state.status(err, StatusKind::Err, now()),
+        }
+    }
+
     /// Recompute the live size estimate (throttled; the decode cache makes it cheap).
     fn refresh_estimate(&mut self) {
-        let now_ms = now();
+        let now_ms = now() * 1000.0;
         let Some(doc) = self.state.doc.as_ref() else { return };
         let key = format!(
-            "{:?}|{}|{:?}|{:?}|{:?}|{}|{}",
+            "{:?}|{}|{:?}|{:?}|{:?}|{:?}|{}",
             self.state.output.format,
             self.state.output.quality,
             self.state.output.max_dim,
+            self.state.output.scale,
             self.state.output.target_kb,
             self.state.crop.map(|c| (c.x.round() as i64, c.y.round() as i64, c.w.round() as i64, c.h.round() as i64, c.ratio.map(|r| (r * 1000.0) as i64))),
-            self.state.objects.len(),
-            now_ms.floor() as u64 / 2
+            self.state.objects.len()
         );
-        if self.state.estimate.is_some() && key == self.estimate_key && now_ms - self.estimate_at < 1200.0 {
+        if self.state.estimate.is_some() && key == self.estimate_key && now_ms - self.estimate_at < 120.0 {
             return;
         }
         self.estimate_key = key;
@@ -273,8 +359,11 @@ impl LumenApp {
                 }
                 UiAction::Save => self.save_overwrite(),
                 UiAction::Estimate => self.refresh_estimate(),
-                // file dialogs land with the browser/save-as UI
-                UiAction::Open | UiAction::SaveAs | UiAction::Export => {}
+                UiAction::Open => {
+                    let start = self.state.doc.as_ref().map(|d| d.path.clone());
+                    self.browser.open_at(start);
+                }
+                UiAction::SaveAs | UiAction::Export => self.open_save_dialog(),
             }
         }
     }
@@ -297,7 +386,10 @@ impl LumenApp {
                 };
                 let (w, h) = (doc.width as f32, doc.height as f32);
                 if self.state.view.fit {
-                    self.state.view.scale = (rect.width() / w).min(rect.height() / h).min(1.0);
+                    // Web parity: the fit view keeps 32 px of breathing room on
+                    // every side (64 px total per axis) before fitting.
+                    let stage = rect.shrink2(Vec2::new(32.0, 32.0));
+                    self.state.view.scale = (stage.width() / w).min(stage.height() / h).min(1.0);
                     self.state.view.offset = Vec2::ZERO;
                 }
                 let scale = self.state.view.scale;
@@ -350,7 +442,10 @@ impl eframe::App for LumenApp {
             self.focused_once = true;
             ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
         }
-        self.handle_keys(ctx);
+        let modal_open = self.browser.open || self.dialog.open;
+        if !modal_open {
+            self.handle_keys(ctx);
+        }
         ui::topbar::show(ctx, &mut self.state);
         ui::rail::show(ctx, &mut self.state);
         ui::inspector::show(ctx, &mut self.state);
@@ -360,6 +455,26 @@ impl eframe::App for LumenApp {
         ui::shortcuts::show(ctx, &mut self.state);
         self.canvas(ctx);
         self.drain_actions(ctx);
+        if self.browser.open {
+            let locale = self.state.locale;
+            if let Some(path) = self.browser.show(ctx, locale) {
+                self.open(&path, Some(ctx));
+            }
+        }
+        if self.dialog.open {
+            let snap = self.dialog.settings_snapshot();
+            if Some(snap) != self.dialog_snap {
+                self.dialog_snap = Some(snap);
+                self.state.estimate = self.state.doc.as_ref().map(|doc| {
+                    export::estimate_size(doc, &self.state.objects, &self.dialog.output, self.state.crop)
+                });
+            }
+            if let Some(choice) = self.dialog.show(ctx, &self.state, self.state.estimate.as_ref()) {
+                self.save_choice(ctx, choice);
+            }
+        } else {
+            self.dialog_snap = None;
+        }
         if self.state.phase == Phase::Edit && self.state.doc.is_some() {
             self.refresh_estimate();
         }

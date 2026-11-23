@@ -1,7 +1,7 @@
 // Editor top bar: file name + save state on the left, actions on the right.
 // In preview mode this module delegates to the floating preview chrome.
 
-use egui::{Align, Color32, FontId, Layout, Pos2, Rect, Sense, Stroke, Ui, Vec2};
+use egui::{Align, FontId, Layout, Pos2, Rect, Sense, Stroke, Ui, Vec2};
 
 use crate::state::{AppState, Phase, UiAction};
 use crate::theme;
@@ -166,16 +166,6 @@ fn editor_bar(ctx: &egui::Context, state: &mut AppState) {
                 });
             });
         });
-}
-
-/// Small helper used by the preview chrome to paint a rounded pill.
-pub(crate) fn pill(ui: &mut Ui, fill: Color32, stroke_alpha: u8, radius: u8, inner: impl FnOnce(&mut Ui)) {
-    let frame = egui::Frame::new()
-        .fill(fill)
-        .stroke(Stroke::new(1.0_f32, widgets::white(stroke_alpha)))
-        .corner_radius(egui::CornerRadius::same(radius))
-        .inner_margin(egui::Margin::symmetric(4, 3));
-    frame.show(ui, inner);
 }
 
 /// A caption pill drawn with an explicit height (chips).

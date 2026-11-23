@@ -1,6 +1,8 @@
 mod annotate;
 mod app;
+mod browser;
 mod crop;
+mod dialogs;
 mod doc;
 mod export;
 mod fonts;

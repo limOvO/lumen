@@ -1,7 +1,7 @@
 // Left tool rail: tools (V B R O A L T C) with the active indicator, plus the
 // vertical zoom stack pinned to the bottom — exactly like the web editor.
 
-use egui::{Align2, FontId, Layout, Pos2, Rect, Sense, Stroke, Ui, Vec2};
+use egui::{Pos2, Rect, Sense, Stroke, Vec2};
 
 use crate::state::{AppState, Phase, Tool};
 use crate::theme;
@@ -112,39 +112,4 @@ pub fn show(ctx: &egui::Context, state: &mut AppState) {
                 });
             });
         });
-}
-
-/// Fill helper used by layouts that want the rail tint outside a panel.
-#[allow(dead_code)]
-pub fn rail_fill() -> egui::Color32 {
-    widgets::RAIL
-}
-
-/// Where the rail's tool glyphs live inside a rect (used by tests/screenshots).
-#[allow(dead_code)]
-pub fn tool_icon_positions(rect: Rect) -> Vec<Pos2> {
-    let mut out = Vec::new();
-    let mut y = rect.top() + 8.0 + 17.0;
-    for _ in TOOLS {
-        out.push(Pos2::new(rect.center().x, y));
-        y += 38.0;
-    }
-    out
-}
-
-/// Compact label used in unit tests.
-#[allow(dead_code)]
-pub fn tool_tip_prefix(entry: &ToolEntry) -> (Tool, &'static str) {
-    (entry.tool, entry.key)
-}
-
-#[allow(dead_code)]
-fn _font_helper(ui: &Ui) -> FontId {
-    let _ = ui;
-    FontId::proportional(10.0)
-}
-
-#[allow(dead_code)]
-fn _layout_helper() -> (Align2, Layout) {
-    (Align2::CENTER_CENTER, Layout::top_down(egui::Align::Center))
 }

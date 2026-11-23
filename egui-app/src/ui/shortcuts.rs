@@ -3,7 +3,7 @@
 
 use egui::{Align, Align2, Color32, CornerRadius, Id, Layout, Order, Pos2, Rect, Sense, Vec2};
 
-use crate::state::{AppState, Phase};
+use crate::state::AppState;
 use crate::theme;
 
 use super::widgets::{self, Icon};
@@ -96,8 +96,8 @@ pub fn show(ctx: &egui::Context, state: &mut AppState) {
         return;
     }
 
-    let width = 600.0;
-    let height = (screen.height() - 56.0).min(620.0);
+    let width = 560.0;
+    let height = (screen.height() - 56.0).min(644.0);
     let pos = Pos2::new(screen.center().x - width / 2.0, screen.center().y - height / 2.0);
     egui::Area::new(Id::new("shortcuts-card"))
         .order(Order::Foreground)
@@ -135,8 +135,8 @@ pub fn show(ctx: &egui::Context, state: &mut AppState) {
                         egui::Stroke::new(1.0_f32, widgets::white(24)),
                     );
                     let close_rect = Rect::from_min_size(
-                        Pos2::new(head.right() - 16.0 - 36.0, head.center().y - 18.0),
-                        Vec2::splat(36.0),
+                        Pos2::new(head.right() - 16.0 - 40.0, head.center().y - 20.0),
+                        Vec2::splat(40.0),
                     );
                     let close = ui.interact(
                         close_rect,
@@ -144,11 +144,11 @@ pub fn show(ctx: &egui::Context, state: &mut AppState) {
                         Sense::click(),
                     );
                     let circle = if close.hovered() { widgets::white(50) } else { widgets::white(20) };
-                    ui.painter().circle_filled(close_rect.center(), 18.0, circle);
+                    ui.painter().circle_filled(close_rect.center(), 20.0, circle);
                     ui.painter().circle_stroke(
                         close_rect.center(),
-                        18.0,
-                        egui::Stroke::new(1.0_f32, widgets::white(120)),
+                        20.0,
+                        egui::Stroke::new(2.0_f32, widgets::white(230)),
                     );
                     if close.hovered() {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -212,9 +212,9 @@ pub fn show(ctx: &egui::Context, state: &mut AppState) {
 }
 
 fn group_ui(ui: &mut egui::Ui, group: &Group, locale: crate::i18n::Locale) {
-    ui.add_space(4.0);
+    ui.add_space(2.0);
     let (title, _) = ui.allocate_exact_size(
-        Vec2::new(ui.available_width(), 20.0),
+        Vec2::new(ui.available_width(), 18.0),
         Sense::hover(),
     );
     let painter = ui.painter();
@@ -232,7 +232,7 @@ fn group_ui(ui: &mut egui::Ui, group: &Group, locale: crate::i18n::Locale) {
     );
     for (label, keys) in group.rows {
         let (row, _) =
-            ui.allocate_exact_size(Vec2::new(ui.available_width(), 26.0), Sense::hover());
+            ui.allocate_exact_size(Vec2::new(ui.available_width(), 24.0), Sense::hover());
         let painter = ui.painter();
         painter.text(
             Pos2::new(row.left(), row.center().y),
@@ -286,16 +286,3 @@ fn group_ui(ui: &mut egui::Ui, group: &Group, locale: crate::i18n::Locale) {
         );
     }
 }
-
-/// Groups exposed for tests (titles + row counts).
-#[allow(dead_code)]
-pub fn group_titles() -> Vec<&'static str> {
-    GROUPS.iter().map(|g| g.title).collect()
-}
-
-/// Editor-only window (the router keeps it out of preview chrome).
-#[allow(dead_code)]
-pub fn phase_allows(state: &AppState) -> bool {
-    matches!(state.phase, Phase::Preview | Phase::Edit)
-}
-

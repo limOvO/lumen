@@ -30,8 +30,11 @@ Known deviations (documented, not yet resolved):
 - Exported annotation text uses weight 400 where the web CSS uses 600.
 - CJK glyphs outside the 390-glyph UI subset need the system Noto CJK collection
   (loaded lazily when the text tool is used; export falls back to the same system file).
-- Open / save-as dialogs and the in-app folder browser are not wired in the egui build yet;
-  `UiAction::{Open,SaveAs,Export}` are accepted and ignored.
+- The in-app folder browser and the save-as dialog are implemented and wired (Ctrl+O /
+  Ctrl+S / Ctrl+Shift+S, top-bar buttons); image rows use placeholder glyphs instead of
+  real thumbnails.
+- Visual pixel equality is not expected; the harness compares paired states and the
+  remaining deltas are layout polish (preview peek card styling, crop rounding ±3 px).
 
 ## How to run
 

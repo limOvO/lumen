@@ -33,9 +33,6 @@ impl PanelTab {
         }
     }
 
-    pub fn from_index(index: usize) -> Self {
-        Self::ALL[index.min(Self::ALL.len() - 1)]
-    }
 }
 
 #[derive(Clone)]
@@ -43,11 +40,11 @@ pub struct Local {
     pub tab: PanelTab,
     pub last_tool: Option<Tool>,
     pub inspector_collapsed: bool,
+    /// 調整 panel: proportional-resize lock (on by default, like the web build).
+    pub lock_ratio: bool,
     /// Screen rect of the floating preview dock (so the peek card can ignore
     /// presses on the button that opens/closes it).
     pub preview_dock: Rect,
-    /// Path currently loaded, used to reset per-document UI state.
-    pub doc_key: String,
     /// Screen rect of the floating annotation style dock (hover/idle test).
     pub style_dock: Rect,
 }
@@ -58,8 +55,8 @@ impl Default for Local {
             tab: PanelTab::default(),
             last_tool: None,
             inspector_collapsed: false,
+            lock_ratio: true,
             preview_dock: Rect::NOTHING,
-            doc_key: String::new(),
             style_dock: Rect::NOTHING,
         }
     }
@@ -90,11 +87,8 @@ mod tests {
         assert_eq!(PanelTab::ALL.len(), 3);
         for (i, tab) in PanelTab::ALL.into_iter().enumerate() {
             assert_eq!(tab.index(), i);
-            assert_eq!(PanelTab::from_index(i), tab);
             assert!(!tab.label().is_empty());
         }
-        // Out-of-range index clamps instead of panicking.
-        assert_eq!(PanelTab::from_index(99), PanelTab::Crop);
     }
 
     #[test]

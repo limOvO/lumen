@@ -17,6 +17,10 @@ key b; drag 340 340 620 560
 sleep 0.4; shot "$OUT" 04-brush
 key r; drag 760 300 940 460
 sleep 0.4; shot "$OUT" 05-rect
-key c; sleep 0.6; shot "$OUT" 06-crop
+key c; sleep 0.8; shot "$OUT" 06-crop
+click 1108 125 0.6; shot "$OUT" 07-crop-ratio
+click 1135 66 0.7; shot "$OUT" 08-adjust
 key question; sleep 0.6; shot "$OUT" 09-shortcuts; key Escape
+key ctrl+o; sleep 0.8; shot "$OUT" 11-open; key Escape
+key ctrl+shift+s; sleep 0.9; shot "$OUT" 12-saveas; key Escape
 key v; key e; sleep 0.6; shot "$OUT" 10-back-to-preview
