@@ -501,8 +501,11 @@ impl Browser {
                 }
 
                 // --- keyboard navigation (list focused / nothing typed) ----
+                // When the Enter key was just used to confirm the path field it
+                // must not also activate the list (that used to pop a bogus
+                // 「請先選擇資料夾或圖片」 banner right after navigating).
                 let typing = ctx.memory(|m| m.focused()).is_some();
-                if !typing {
+                if !typing && !go_requested {
                     let len = self.entries.len();
                     let current = self.selected_index();
                     let mut next: Option<Option<usize>> = None;
@@ -572,7 +575,7 @@ impl Browser {
                             return;
                         }
                         let mut action: Option<RowAction> = None;
-                        for entry in &self.entries {
+                        for (row_i, entry) in self.entries.iter().enumerate() {
                             let (row, resp) = ui.allocate_exact_size(
                                 Vec2::new(ui.available_width(), ROW_H),
                                 Sense::click(),
@@ -580,7 +583,19 @@ impl Browser {
                             let active =
                                 self.selected.as_deref() == Some(entry.path.as_path());
                             let hovered = resp.hovered();
-                            let row_rect = row.shrink2(Vec2::new(4.0, 0.0));
+                            // Web-style press feedback: the row content pops down
+                            // to 97% while held and springs back on release.
+                            let press = crate::ui::motion::press_scale(
+                                ui.ctx(),
+                                Id::new(("browser-row", row_i)),
+                                &resp,
+                                0.97,
+                            );
+                            let base_row = row.shrink2(Vec2::new(4.0, 0.0));
+                            let row_rect = Rect::from_center_size(
+                                base_row.center(),
+                                base_row.size() * press,
+                            );
                             let painter = ui.painter();
                             if active {
                                 painter.rect_filled(

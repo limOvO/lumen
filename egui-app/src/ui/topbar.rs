@@ -123,13 +123,23 @@ fn editor_bar(ctx: &egui::Context, state: &mut AppState) {
                     widgets::sep_v(ui);
 
                     let has_doc = state.doc.is_some();
-                    let redo =
-                        widgets::icon_button(ui, Icon::Redo, &t.tr("重做（Ctrl+Shift+Z）"), has_doc);
+                    let can_redo = has_doc && state.can_redo();
+                    let redo = widgets::icon_button(
+                        ui,
+                        Icon::Redo,
+                        &t.tr("重做（Ctrl+Shift+Z）"),
+                        can_redo,
+                    );
                     if redo.clicked() {
                         state.redo();
                     }
-                    let undo =
-                        widgets::icon_button(ui, Icon::Undo, &t.tr("復原（Ctrl+Z）"), has_doc);
+                    let can_undo = has_doc && state.can_undo();
+                    let undo = widgets::icon_button(
+                        ui,
+                        Icon::Undo,
+                        &t.tr("復原（Ctrl+Z）"),
+                        can_undo,
+                    );
                     if undo.clicked() {
                         state.undo();
                     }

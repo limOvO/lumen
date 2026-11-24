@@ -41,14 +41,39 @@ pub fn dock_offset(canvas: Rect, screen: Rect, wake: f32) -> Vec2 {
 }
 
 /// Debug hook used by scripts/parity/verify.py (LUMEN_DEBUG_DOCK=1).
-fn debug_log(rect: Rect, canvas: Rect, screen: Rect) {
+/// The extra repaint keeps frames coming while the gate samples the dock, but
+/// only when the debug env var is set.
+fn debug_log(ctx: &egui::Context, rect: Rect, canvas: Rect, screen: Rect) {
     if std::env::var_os("LUMEN_DEBUG_DOCK").is_some() {
+        ctx.request_repaint_after(std::time::Duration::from_millis(50));
         eprintln!(
             "[dock] rect {:.1} {:.1} {:.1} {:.1} canvas {:.1} {:.1} {:.1} {:.1} screen {:.1} {:.1}",
             rect.left(), rect.top(), rect.width(), rect.height(),
             canvas.left(), canvas.top(), canvas.width(), canvas.height(),
             screen.width(), screen.height()
         );
+    }
+}
+
+/// Hysteresis latch for the dock wake state (pure so it can be tested):
+/// lock when the pointer is inside either band inset by 8px, unlock only when
+/// it is outside both bands expanded by 46px, otherwise keep the previous state.
+pub fn wake_target(
+    pointer: Option<egui::Pos2>,
+    visible: Rect,
+    rest: Rect,
+    was_locked: bool,
+) -> bool {
+    let Some(p) = pointer else { return false };
+    let inside = visible.expand(8.0).contains(p) || rest.expand(8.0).contains(p);
+    let outside =
+        !visible.expand(46.0).contains(p) && !rest.expand(46.0).contains(p);
+    if inside {
+        true
+    } else if outside {
+        false
+    } else {
+        was_locked
     }
 }
 
@@ -65,13 +90,16 @@ pub fn show(ctx: &egui::Context, state: &mut AppState) {
     let t = state.locale;
     let screen = ctx.screen_rect();
     let pointer = ctx.input(|i| i.pointer.hover_pos());
-    let was_hovered = local::get(ctx, |l| match pointer {
-        Some(p) => l.style_dock.expand(8.0).contains(p),
-        None => false,
-    });
-    let wake = motion::blend(ctx, Id::new("style-dock-wake"), was_hovered, 0.20);
-    // Idle dimming stays, multiplied by the enter/exit progress.
-    let opacity = enter * (0.45 + 0.55 * wake);
+    // Hysteresis around the two ends of the dock's slide: the dock moves down
+    // and up while asleep/awake, so a wake test against a single animated rect
+    // oscillates (pointer leaves -> sleeps -> moves under the pointer -> wakes).
+    let (prev_visible, prev_rest, was_locked) =
+        local::get(ctx, |l| (l.style_dock, l.style_dock_rest, l.dock_wake_locked));
+    let locked = wake_target(pointer, prev_visible, prev_rest, was_locked);
+    let wake = motion::blend(ctx, Id::new("style-dock-wake"), locked, 0.20);
+    local::with(ctx, |l| l.dock_wake_locked = locked);
+    // Idle dimming stays (web: 0.42), multiplied by the enter/exit progress.
+    let opacity = enter * (0.42 + 0.58 * wake);
     // Position like the web: centred on the *canvas area* (rail + inspector
     // taken into account) and 26px above the status bar. The dock previously
     // centred on the window, which pushed it over the picture on the right.
@@ -94,9 +122,16 @@ pub fn show(ctx: &egui::Context, state: &mut AppState) {
             ui.set_max_width(dock_w);
             ui.set_opacity(opacity);
             egui::Frame::new()
-                .fill(Color32::from_rgba_unmultiplied(24, 24, 26, 245))
+                // Web: rgba(24,24,26,.94–.96) with `box-shadow: 0 10px 30px rgba(0,0,0,.4)`.
+                .fill(Color32::from_rgb(24, 24, 26))
                 .stroke(Stroke::new(1.0_f32, widgets::white(40)))
                 .corner_radius(CornerRadius::same(14))
+                .shadow(egui::epaint::Shadow {
+                    offset: [0, 10],
+                    blur: 30,
+                    spread: 0,
+                    color: Color32::from_rgba_unmultiplied(0, 0, 0, 102),
+                })
                 .inner_margin(egui::Margin::symmetric(14, 10))
                 .show(ui, |ui| {
                     ui.set_width(dock_w - 28.0);
@@ -112,7 +147,13 @@ pub fn show(ctx: &egui::Context, state: &mut AppState) {
                             ui.spacing_mut().item_spacing.x = 5.0;
                             for color in TOOL_COLORS {
                                 let active = state.style.color == color;
-                                if widgets::swatch(ui, color, active).clicked() {
+                                let anim_id = Id::new((
+                                    "swatch-ring",
+                                    color.r(),
+                                    color.g(),
+                                    color.b(),
+                                ));
+                                if widgets::swatch(ui, anim_id, color, active).clicked() {
                                     state.style.color = color;
                                 }
                             }
@@ -190,8 +231,14 @@ pub fn show(ctx: &egui::Context, state: &mut AppState) {
                     });
                 });
         });
-    local::with(ctx, |l| l.style_dock = resp.response.rect);
-    debug_log(resp.response.rect, canvas, screen);
+    let visible = resp.response.rect;
+    let idle_slide = (1.0 - wake) * 0.58 * 54.0;
+    let rest = visible.translate(Vec2::new(0.0, -idle_slide));
+    local::with(ctx, |l| {
+        l.style_dock = visible;
+        l.style_dock_rest = rest;
+    });
+    debug_log(ctx, resp.response.rect, canvas, screen);
 }
 
 fn slider_stack(
@@ -217,6 +264,30 @@ fn slider_stack(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dock_wake_hysteresis_does_not_oscillate() {
+        use egui::Pos2;
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(1280.0, 820.0));
+        let canvas = Rect::from_min_max(Pos2::new(52.0, 46.0), Pos2::new(980.0, 796.0));
+        // Awake rect and the same rect while asleep (slid down ~31px).
+        let visible = Rect::from_min_size(Pos2::new(300.0, 700.0), Vec2::new(600.0, 54.0));
+        let rest = visible.translate(Vec2::new(0.0, -31.32));
+        let _ = (screen, canvas);
+        // Pointer in the middle of either band -> locked.
+        assert!(wake_target(Some(visible.center()), visible, rest, false));
+        assert!(wake_target(Some(rest.center()), visible, rest, false));
+        // Pointer in the hysteresis rim keeps the previous latch in both dirs.
+        // Between the 8px inner band and the 46px outer band of both rects.
+        let rim = Pos2::new(visible.center().x, rest.top() - 20.0);
+        assert!(wake_target(Some(rim), visible, rest, true));
+        assert!(!wake_target(Some(rim), visible, rest, false));
+        // Well outside -> unlocked.
+        let far = Pos2::new(visible.center().x, visible.top() - 80.0);
+        assert!(!wake_target(Some(far), visible, rest, true));
+        // No pointer -> asleep.
+        assert!(!wake_target(None, visible, rest, true));
+    }
 
     #[test]
     fn dock_is_centred_on_the_canvas_and_56px_above_it() {

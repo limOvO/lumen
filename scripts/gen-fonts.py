@@ -50,3 +50,56 @@ for source, name, index in faces:
         check=True,
     )
     print(name, out.stat().st_size, 'bytes')
+
+# ---------------------------------------------------------------------------
+# Wide fallback faces: every hanzi encodable in GB2312/GBK/Big5. The small
+# subsets above cover the UI; these cover arbitrary typed annotation text and
+# file names (the egui build used to show tofu for chars outside the UI set).
+# ---------------------------------------------------------------------------
+def common_cjk_chars():
+    """Every hanzi encodable in GB2312/GBK/Big5.
+
+    GBK/Big5 trail bytes start at 0x40 (not 0xA1), so both halves must be
+    scanned or common characters such as 專 silently miss the fallback face.
+    """
+    chars = set()
+    for enc in ("gb2312",):
+        for b1 in range(0xA1, 0xFF):
+            for b2 in range(0xA1, 0xFF):
+                try:
+                    ch = bytes([b1, b2]).decode(enc)
+                except Exception:
+                    continue
+                if len(ch) == 1 and ("\u3400" <= ch <= "\u9fff" or "\uf900" <= ch <= "\ufaff"):
+                    chars.add(ch)
+    for enc in ("gbk", "big5"):
+        for b1 in range(0x81, 0xFF):
+            for b2 in range(0x40, 0xFF):
+                try:
+                    ch = bytes([b1, b2]).decode(enc)
+                except Exception:
+                    continue
+                if len(ch) == 1 and ("\u3400" <= ch <= "\u9fff" or "\uf900" <= ch <= "\ufaff"):
+                    chars.add(ch)
+    return "".join(sorted(chars))
+
+
+common_file = root / 'scripts/i18n/cjk-common.txt'
+common_file.write_text(common_cjk_chars(), encoding='utf-8')
+print('common CJK charset:', len(common_file.read_text(encoding='utf-8')), 'chars')
+
+# Fallback faces: the subsetter produces a cmap that ab_glyph mis-reads for a
+# large charset (thousands of chars mapped to high glyph ids returned as .notdef),
+# so embed the full extracted Noto faces instead. Disk cost ~33 MB, but typed
+# annotation text and file names can then never render as tofu.
+fallback_faces = [
+    ('NotoSansCJK-Regular.ttc', 'NotoSansCJKfallback-regular.otf', 3),
+    ('NotoSansCJK-Bold.ttc', 'NotoSansCJKfallback-bold.otf', 3),
+]
+from fontTools.ttLib import TTFont
+
+for source, name, index in fallback_faces:
+    out = outdir / name
+    font = TTFont('/usr/share/fonts/noto-cjk/' + source, fontNumber=index)
+    font.save(out)
+    print(name, out.stat().st_size, 'bytes')

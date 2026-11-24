@@ -30,6 +30,9 @@ Tauri/WebKit build in this repo, driven by the same scripts.
 | 21 | Modal layering | the scrim dims the chrome underneath (dock no longer floats above the dialog) | G11 |
 | 22 | Small windows | the save dialog stays inside the 880x560 minimum window | G12 |
 | 17 | Drag & drop | dropping a file/folder opens it | implemented in app.rs (`raw.dropped_files`), covered by code review (xdotool cannot synthesise DnD) |
+| 24 | CJK coverage | every common hanzi (GB2312/GBK/Big5, 20,923 chars) resolves in the embedded full fallback faces; typed annotation text and file names never show tofu. The subsetter's large-cmap output is mis-read by ab_glyph (thousands of chars → .notdef), so the full extracted Noto faces are embedded (+33 MB binary, no startup cost) | `fonts::tests` glyph-coverage tests |
+| 25 | Micro-interactions | tool pill/bar slide + press scale, swatch ring pop, browser row press pop, shortcuts close fade/scale, dock wake hysteresis | A6/A7/A9, G20, plus ui/motion unit tests |
+| 26 | Browser flow | select an image, close, reopen, open it; Enter in the path field no longer double-fires the list activation | G19/G19b |
 
 Compare semantics match `src/js/main.js`: the toggle survives phase changes and resets
 when a different document is loaded (`AppState::reset_for_doc`), with the annotations
@@ -64,7 +67,7 @@ Known, accepted differences (not testable/changed here):
 ## Automated gate
 
 `python3 scripts/parity/verify.py` drives the real egui binary (private Xvfb `:96`) and asserts
-53 checks spanning geometry, palette parity against a live WebView capture, presence of every
+60 checks spanning geometry, palette parity against a live WebView capture, presence of every
 chrome region, tool behaviour (brush/line/arrow/rect/crop/text/delete/undo/redo/compare),
 zoom/fit behaviour, animated transitions (image switch, phase glide, rail slide, dock rise,
 peek close), idle CPU, languages, single-instance forwarding, save/save-as and the benchmark.

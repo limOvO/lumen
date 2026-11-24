@@ -47,8 +47,13 @@ pub struct Local {
     /// Screen rect of the floating preview dock (so the peek card can ignore
     /// presses on the button that opens/closes it).
     pub preview_dock: Rect,
-    /// Screen rect of the floating annotation style dock (hover/idle test).
+    /// Screen rect of the floating annotation style dock (last painted).
     pub style_dock: Rect,
+    /// The same dock rect translated back to the fully-awake position, so the
+    /// hover band covers both ends of the slide (prevents wake/sleep jitter).
+    pub style_dock_rest: Rect,
+    /// True while the pointer is inside the wake band (hysteresis latch).
+    pub dock_wake_locked: bool,
     /// Path of the document the UI last saw (drives web-style `openDoc` resets).
     pub last_doc_path: String,
 }
@@ -63,6 +68,8 @@ impl Default for Local {
             inspector_width: crate::theme::PANEL_W,
             preview_dock: Rect::NOTHING,
             style_dock: Rect::NOTHING,
+            style_dock_rest: Rect::NOTHING,
+            dock_wake_locked: false,
             last_doc_path: String::new(),
         }
     }

@@ -363,16 +363,18 @@ def main():
         n_cmp2 = red_count(img_arr(shot("egui-12-compare-off")), (80, 60, 940, 600))
         check("B10", "compare off restores annotations", n_cmp2 >= n_del * 0.85, f"{n_cmp2} vs {n_del} before compare")
 
-        # dock enter animation (fade + rise): sample the dock band right after the tool switch
+        # dock enter animation (fade + rise): hide it first, then sample while it appears
+        key("v", 0.5)
+        time.sleep(0.6)
         s_dock_pre = shot("egui-18a-pre-dock")
-        frames = burst("dock", "b", frames=4, gap=0.06)
+        frames = burst("dock", "b", frames=5, gap=0.05)
         dock_means = []
         for f in frames:
-            im_f = img_arr(f)
-            band = im_f.crop((240, 690, 1040, 780)).convert("L").resize((60, 12))
-            dock_means.append(round(statistics.mean(band.getdata()), 1))
+            band = img_arr(f).crop((240, 680, 1040, 790)).convert("L").resize((60, 12))
+            dock_means.append(statistics.mean(band.getdata()))
+        spread = max(dock_means) - min(dock_means) if dock_means else 0.0
         check("A4", "style dock animates in (band brightness changes over frames)",
-              len(set(int(m // 2) for m in dock_means)) >= 2, str(dock_means))
+              spread > 0.4, f"spread {spread:.2f} means {[round(m,1) for m in dock_means]}")
         key("v", 0.4)
         time.sleep(0.5)
 
@@ -873,6 +875,165 @@ def main():
         detail = f"swatch centre y {cy_w:.1f} vs {cy_e:.1f}, bands {bw[1]}..{bw[3]} vs {be[1]}..{be[3]}"
         ok = abs(cy_w - cy_e) <= 2 and abs(bw[1] - be[1]) <= 2
     check("G18", "dock colour swatches are vertically centred like the web", ok, detail)
+
+    # ---- browser flow: select an image, exit, reopen, open it ----
+    outline = Path("/tmp/parity-browser-flow")
+    outline.mkdir(exist_ok=True)
+    for i in range(3):
+        (outline / f"fixture-{i}.jpg").write_bytes(fx.read_bytes())
+    p = start(app, fx)
+    try:
+        focus()
+        time.sleep(2.5)
+        key("e", 0.6)
+        key("ctrl+o", 0.7)
+        time.sleep(1.0)
+        def goto_fixture():
+            xdo("mousemove", 590, 183, "click", "1"); time.sleep(0.3)
+            key("ctrl+a", 0.2)
+            xdo("type", "--delay", "10", str(outline))
+            time.sleep(0.3)
+            key("Return", 1.0)
+        goto_fixture()
+        # single click on the first image row (fixture folder holds only images)
+        xdo("mousemove", 500, 262, "click", "1"); time.sleep(0.6)
+        key("Escape", 0.7)
+        s_after_close = shot("egui-27-browser-closed")
+        key("ctrl+o", 0.8)
+        time.sleep(0.9)
+        s_reopen = shot("egui-28-browser-reopen")
+        goto_fixture()
+        xdo("mousemove", 500, 262, "click", "1"); time.sleep(0.5)
+        xdo("mousemove", 908, 183, "click", "1"); time.sleep(1.8)
+        title = run(["xdotool", "getwindowname", wait_window()]).stdout.strip()
+        check("G19", "browser select -> exit -> reopen -> open still works",
+              "fixture-" in title, title)
+        # the reopen must not leave a scrim behind
+        d = region_delta(s_after_close, s_reopen, (300, 120, 960, 700))
+        check("G19b", "reopened browser is interactive (not stuck behind a scrim)", d > 3.0,
+              f"delta {d:.1f}")
+    finally:
+        stop(p)
+        cleanup()
+
+    # ---- micro-interactions: tool pill/bar slide, swatch pop, shortcuts close ----
+    p = start(app, fx)
+    try:
+        focus(); time.sleep(2.5)
+        key("e", 0.7); time.sleep(0.8)
+        key("v", 0.4)   # Move active
+        frames = burst("toolswitch", "r", frames=6, gap=0.05)
+        bar_ys = []
+        for f in frames:
+            im_f = img_arr(f)
+            px_f = im_f.load()
+            ys = [y for y in range(50, 460) for x in range(3, 10)
+                  if sum(px_f[x, y][:3]) > 3 * 140]
+            bar_ys.append(sum(ys) / len(ys) if ys else 0.0)
+        nonzero = [y for y in bar_ys if y > 0]
+        spread = (max(nonzero) - min(nonzero)) if len(nonzero) > 1 else 0.0
+        check("A6", "active tool bar slides between rows (animated)",
+              spread > 8.0, f"bar centres {[round(y,1) for y in bar_ys]}")
+        key("question", 0.6)
+        time.sleep(0.6)
+        frames = burst("shortcut-close", "Escape", frames=4, gap=0.05)
+        means = []
+        for f in frames:
+            cell = img_arr(f).crop((360, 120, 900, 700)).convert("L").resize((40, 40))
+            means.append(statistics.mean(cell.getdata()))
+        spread = (max(means) - min(means)) if means else 0.0
+        check("A9", "shortcuts window animates out", spread > 2.0,
+              f"means {[round(m,1) for m in means]}")
+    finally:
+        stop(p)
+        cleanup()
+
+    # ---- swatch pop (motion slowed so screencaps can sample it) ----
+    cleanup()
+    env = dict(ENV); env["LUMEN_MOTION_SLOW"] = "8"
+    sp = subprocess.Popen([str(app), str(fx)], env=env,
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        if not wait_window("Lumen", 25.0):
+            raise RuntimeError("swatch window did not appear")
+        focus(); time.sleep(2.5)
+        key("e", 1.0); time.sleep(1.2)
+        key("b", 1.0); time.sleep(1.2)
+        xdo("mousemove", 516, 740)
+        time.sleep(1.2)
+        pre = shot("egui-32-swatch-pre")
+        xdo("mousemove", 265, 712)
+        time.sleep(0.3)
+        xdo("click", "1")
+        frames = burst("swatchpop", None, frames=5, gap=0.12)
+        counts = []
+        for f in frames:
+            im_f = img_arr(f)
+            px_f = im_f.load()
+            counts.append(sum(1 for y in range(690, 734) for x in range(248, 286)
+                              if sum(px_f[x, y]) > 3 * 190))
+        check("A7", "colour swatch selection animates (ring pop)",
+              len(set(counts)) >= 2, f"ring pixels {counts}")
+    finally:
+        stop(sp)
+        cleanup()
+
+    # ---- dock wake must not oscillate ----
+    cleanup()
+    dock_log = OUT / "dock-jitter.log"
+    dock_log.write_text("")
+    env = dict(ENV); env["LUMEN_DEBUG_DOCK"] = "1"
+    dp = subprocess.Popen([str(app), str(fx)], env=env,
+                          stdout=subprocess.DEVNULL, stderr=open(dock_log, "w"))
+    try:
+        if not wait_window("Lumen", 25.0):
+            raise RuntimeError("dock-jitter window did not appear")
+        focus(); time.sleep(2.5)
+        key("e", 0.8); time.sleep(0.6); key("b", 0.8); time.sleep(0.8)
+        # park the pointer right on the wake boundary and watch the dock rect
+        xdo("mousemove", 516, 780)
+        time.sleep(0.4)
+        dock_log.write_text("")
+        time.sleep(1.4)
+        lines = [l for l in dock_log.read_text().splitlines() if l.startswith("[dock] rect")]
+        ys = []
+        for line in lines:
+            v = [float(x) for x in line.split() if x.replace(".", "", 1).lstrip("-").isdigit()]
+            ys.append(v[1])
+        stable = len(ys) > 5 and (max(ys) - min(ys)) <= 2.0
+        check("G20", "dock does not oscillate while the pointer sits at its edge",
+              stable, f"{len(ys)} frames, y {min(ys):.1f}..{max(ys):.1f}" if ys else "no frames")
+    finally:
+        stop(dp)
+        cleanup()
+
+    # ---- undo/redo affordance matches the history ----
+    p = start(app, fx)
+    try:
+        focus(); time.sleep(2.5)
+        key("e", 0.7); time.sleep(0.6)
+        def undo_redo(path):
+            im = img_arr(path)
+            u = im.crop((1120, 10, 1148, 38)).convert("L")
+            r = im.crop((1150, 10, 1180, 38)).convert("L")
+            return statistics.mean(u.getdata()), statistics.mean(r.getdata())
+        before = shot("egui-29-undo-empty")
+        u0, r0 = undo_redo(before)
+        key("b", 0.4)
+        drag(380, 360, 620, 540)
+        time.sleep(0.4)
+        mid = shot("egui-30-undo-available")
+        u1, r1 = undo_redo(mid)
+        key("ctrl+z", 0.6)
+        time.sleep(0.5)
+        after = shot("egui-31-redo-available")
+        u2, r2 = undo_redo(after)
+        check("G21", "undo/redo buttons light up only when the history allows it",
+              u0 < u1 - 2.0 and r0 < r2 - 2.0 and abs(u2 - u0) < 2.0,
+              f"undo {u0:.1f}->{u1:.1f}->{u2:.1f}, redo {r0:.1f}->{r1:.1f}->{r2:.1f}")
+    finally:
+        stop(p)
+        cleanup()
 
     # ---- performance ----
     if quick:

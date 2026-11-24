@@ -256,6 +256,14 @@ impl AppState {
         self.dirty = true;
     }
 
+    pub fn can_undo(&self) -> bool {
+        !self.undo.is_empty()
+    }
+
+    pub fn can_redo(&self) -> bool {
+        !self.redo.is_empty()
+    }
+
     pub fn undo(&mut self) -> bool {
         let Some(prev) = self.undo.pop() else { return false };
         self.redo.push(Snapshot {

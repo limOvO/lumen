@@ -90,6 +90,17 @@ fn draw_rail(ui: &mut egui::Ui, state: &mut AppState) {
         panel_rect.y_range(),
         Stroke::new(1.0_f32, widgets::white(22)),
     );
+    let active_idx = TOOLS
+        .iter()
+        .position(|e| e.tool == state.tool)
+        .unwrap_or(0);
+    // The 2px bar slides between rows (web: 120–180 ms ease-out).
+    let bar_idx = ui.ctx().animate_value_with_time(
+        Id::new("rail-bar-idx"),
+        active_idx as f32,
+        motion::scaled_duration(ui.ctx().style().animation_time, 0.18),
+    );
+    let mut rows: Vec<(f32, f32)> = Vec::with_capacity(TOOLS.len());
     ui.vertical_centered(|ui| {
         ui.add_space(8.0);
         ui.spacing_mut().item_spacing = Vec2::new(0.0, 4.0);
@@ -107,39 +118,79 @@ fn draw_rail(ui: &mut egui::Ui, state: &mut AppState) {
             }
             let active = state.tool == entry.tool;
             let (rect, resp) = ui.allocate_exact_size(Vec2::splat(30.0), Sense::click());
-            let hovered = resp.hovered();
+            rows.push((rect.center().y, rect.left()));
+            // Hover fades instead of snapping on/off.
+            let hover = motion::blend(
+                ui.ctx(),
+                Id::new(("rail-hover", i)),
+                resp.hovered(),
+                0.12,
+            );
+            // Press scale 0.94 while held, 120 ms spring back on release.
+            let press = motion::press_scale(
+                ui.ctx(),
+                Id::new(("rail-press", i)),
+                &resp,
+                0.94,
+            );
+            let scaled = Rect::from_center_size(rect.center(), rect.size() * press);
+            // Active pill: crossfades on switch and pops in (0.8 -> 1.12 -> 1).
+            let (progress, active_alpha) = motion::toggle(
+                ui.ctx(),
+                Id::new(("rail-active", i)),
+                active,
+                0.18,
+            );
             let painter = ui.painter();
-            if active {
-                // web `--brand-soft` = 10% #f9fafb
-                painter.rect_filled(rect, egui::CornerRadius::same(8), widgets::brand_soft());
-            } else if hovered {
-                // web `--surface` = 6% white over the panel
-                painter.rect_filled(rect, egui::CornerRadius::same(8), widgets::white(15));
+            if active_alpha > 0.01 {
+                let scale = if active {
+                    motion::pop_scale(progress)
+                } else {
+                    1.0
+                };
+                let pill = Rect::from_center_size(
+                    scaled.center(),
+                    Vec2::splat(30.0 * scale * press),
+                );
+                painter.rect_filled(
+                    pill,
+                    egui::CornerRadius::same(8),
+                    widgets::brand_soft().gamma_multiply(active_alpha),
+                );
+            } else if hover > 0.01 {
+                painter.rect_filled(
+                    scaled,
+                    egui::CornerRadius::same(8),
+                    widgets::white((15.0 * hover) as u8),
+                );
             }
-            let color = if active || hovered { theme::TEXT } else { theme::DIM };
+            let color = if active || hover > 0.5 { theme::TEXT } else { theme::DIM };
             paint_tool_icon(
                 painter,
-                Rect::from_center_size(rect.center(), Vec2::splat(19.0)),
+                Rect::from_center_size(scaled.center(), Vec2::splat(19.0) * press),
                 entry.icon,
                 color,
             );
-            if active {
-                // web `.rail-btn[aria-pressed]::before`: 2px bar at left:-7, 9px insets
-                painter.rect_filled(
-                    Rect::from_min_size(
-                        Pos2::new(rect.left() - 7.0, rect.top() + 9.0),
-                        Vec2::new(2.0, rect.height() - 18.0),
-                    ),
-                    egui::CornerRadius::same(2),
-                    theme::TEXT,
-                );
-            }
             let tip = format!("{}  ·  {}", t.tr(entry.tip), entry.key);
             if resp.on_hover_text(tip).clicked() {
                 state.set_tool(entry.tool);
             }
         }
     });
+    // Left indicator bar, sliding between the active row positions.
+    if rows.len() > 1 {
+        let clamped = bar_idx.clamp(0.0, (rows.len() - 1) as f32);
+        let i0 = clamped.floor() as usize;
+        let i1 = (i0 + 1).min(rows.len() - 1);
+        let frac = clamped - i0 as f32;
+        let y = rows[i0].0 + (rows[i1].0 - rows[i0].0) * frac;
+        let x = rows[active_idx.min(rows.len() - 1)].1 - 7.0;
+        ui.painter().rect_filled(
+            Rect::from_min_size(Pos2::new(x, y - 9.0), Vec2::new(2.0, 18.0)),
+            egui::CornerRadius::same(2),
+            theme::TEXT,
+        );
+    }
 
     // In the no-document state the zoom controls float in the canvas instead.
     if state.doc.is_none() {

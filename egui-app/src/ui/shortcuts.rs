@@ -6,6 +6,7 @@ use egui::{Align, Align2, Color32, CornerRadius, Id, Layout, Order, Pos2, Rect, 
 use crate::state::AppState;
 use crate::theme;
 
+use super::motion;
 use super::widgets::{self, Icon};
 
 struct Group {
@@ -71,12 +72,17 @@ const GROUPS: &[Group] = &[
 ];
 
 pub fn show(ctx: &egui::Context, state: &mut AppState) {
-    if !state.show_shortcuts {
+    let open = state.show_shortcuts;
+    // Opening stays instant (web has no entrance); closing fades + shrinks to
+    // 0.96 over 160 ms. We keep painting until the animation is done.
+    let presence = motion::blend(ctx, Id::new("shortcuts-presence"), open, 0.16);
+    if !open && presence <= 0.001 {
         return;
     }
     let t = state.locale;
     let screen = ctx.screen_rect();
-    let fade = ctx.animate_bool_with_time(Id::new("shortcuts-fade"), true, 0.14);
+    let fade = presence;
+    let scale = 0.96 + 0.04 * presence;
 
     // Scrim: clicking it closes the window.
     let scrim = egui::Area::new(Id::new("shortcuts-scrim"))
@@ -91,13 +97,14 @@ pub fn show(ctx: &egui::Context, state: &mut AppState) {
             );
             resp
         });
-    if scrim.inner.clicked() {
+    if open && scrim.inner.clicked() {
         state.show_shortcuts = false;
         return;
     }
 
-    let width = 560.0;
-    let height = (screen.height() - 56.0).min(644.0);
+    // Shrink towards the centre while closing (scale 1 -> 0.96).
+    let width = 560.0 * scale;
+    let height = (screen.height() - 56.0).min(644.0) * scale;
     let pos = Pos2::new(screen.center().x - width / 2.0, screen.center().y - height / 2.0);
     egui::Area::new(Id::new("shortcuts-card"))
         .order(Order::Foreground)
@@ -160,7 +167,7 @@ pub fn show(ctx: &egui::Context, state: &mut AppState) {
                         if close.hovered() { theme::TEXT } else { theme::DIM },
                         2.0,
                     );
-                    if close.clicked() {
+                    if open && close.clicked() {
                         state.show_shortcuts = false;
                     }
 

@@ -35,7 +35,12 @@ pub fn scaled_duration(style_animation_time: f32, nominal: f32) -> f32 {
         return 0.0;
     }
     let scale = (style_animation_time / DEFAULT_STYLE_TIME).clamp(0.25, 3.0);
-    (nominal * scale).min(MAX_DURATION)
+    let slow = std::env::var("LUMEN_MOTION_SLOW")
+        .ok()
+        .and_then(|v| v.parse::<f32>().ok())
+        .map(|v| v.clamp(1.0, 10.0))
+        .unwrap_or(1.0);
+    (nominal * scale).min(MAX_DURATION) * slow
 }
 
 /// One-shot intro animation for elements that appear on the very first frame
@@ -44,14 +49,7 @@ pub fn scaled_duration(style_animation_time: f32, nominal: f32) -> f32 {
 /// while it is still progressing. Call `reset_intro` when the element goes away
 /// so a later re-appearance animates again.
 pub fn intro(ctx: &Context, id: Id, nominal: f32) -> f32 {
-    let now = ctx.input(|i| i.time);
-    let start = ctx.data_mut(|d| *d.get_temp_mut_or_insert_with(id, move || now));
-    let duration = scaled_duration(ctx.style().animation_time, nominal);
-    let progress = intro_progress(start, now, duration);
-    if progress < 1.0 {
-        ctx.request_repaint();
-    }
-    easing::cubic_out(progress)
+    easing::cubic_out(intro_raw(ctx, id, nominal))
 }
 
 /// Drop a stored intro start time (element was hidden / document loaded).
@@ -65,6 +63,97 @@ pub fn intro_progress(start: f64, now: f64, duration: f32) -> f32 {
         return 1.0;
     }
     (((now - start) / duration as f64) as f32).clamp(0.0, 1.0)
+}
+
+#[derive(Clone, Copy)]
+struct Presence {
+    last: bool,
+    start: f64,
+}
+
+/// Toggle-presence animation for pills/rings: returns `(progress, alpha)`
+/// where `progress` is the linear 0..1 transition position (for pop curves) and
+/// `alpha` fades in on activation / out on deactivation. Requests repaints only
+/// while the transition is running, and starts steaedy (no animation on the
+/// first frame a widget appears).
+pub fn toggle(ctx: &Context, id: Id, active: bool, nominal: f32) -> (f32, f32) {
+    let now = ctx.input(|i| i.time);
+    let duration = scaled_duration(ctx.style().animation_time, nominal);
+    let (progress, was_active) = ctx.data_mut(|d| {
+        let p = d.get_temp_mut_or_insert_with(id, || Presence {
+            last: active,
+            start: now - duration as f64,
+        });
+        if p.last != active {
+            p.last = active;
+            p.start = now;
+        }
+        (intro_progress(p.start, now, duration), p.last)
+    });
+    if progress < 1.0 {
+        ctx.request_repaint();
+    }
+    let alpha = ring_alpha(was_active, progress);
+    (progress, alpha)
+}
+
+/// Raw (linear) intro progress. Same timing rules as [`intro`], but returns
+/// the un-eased 0..1 value so callers can drive custom spring curves.
+pub fn intro_raw(ctx: &Context, id: Id, nominal: f32) -> f32 {
+    let now = ctx.input(|i| i.time);
+    let start = ctx.data_mut(|d| *d.get_temp_mut_or_insert_with(id, move || now));
+    let duration = scaled_duration(ctx.style().animation_time, nominal);
+    let progress = intro_progress(start, now, duration);
+    if progress < 1.0 {
+        ctx.request_repaint();
+    }
+    progress
+}
+
+/// Press-scale factor for clickables: `pressed` while the pointer is held on
+/// the widget, springing back over 120 ms. The web uses scale(.94)/(.97).
+pub fn press_scale(
+    ctx: &Context,
+    id: Id,
+    response: &egui::Response,
+    pressed_scale: f32,
+) -> f32 {
+    let target = response.is_pointer_button_down_on();
+    let t = ctx.animate_bool_with_time_and_easing(
+        id,
+        target,
+        scaled_duration(ctx.style().animation_time, 0.12),
+        easing::cubic_out,
+    );
+    press_factor(t, pressed_scale)
+}
+
+/// Pure press-scale interpolation (`t` = eased press amount).
+pub fn press_factor(t: f32, pressed_scale: f32) -> f32 {
+    1.0 + (pressed_scale - 1.0) * t.clamp(0.0, 1.0)
+}
+
+/// Ring "pop" curve used by the colour swatches: 0.8 -> 1.12 -> 1.0 over the
+/// 0..1 activation progress (the web overshoots briefly at ~60%).
+pub fn pop_scale(progress: f32) -> f32 {
+    let p = progress.clamp(0.0, 1.0);
+    if p < 0.6 {
+        let t = easing::cubic_out(p / 0.6);
+        0.8 + (1.12 - 0.8) * t
+    } else {
+        let t = easing::cubic_out((p - 0.6) / 0.4);
+        1.12 + (1.0 - 1.12) * t
+    }
+}
+
+/// Ring opacity: fades in when selected, fades out when deselected.
+pub fn ring_alpha(active: bool, progress: f32) -> f32 {
+    let t = easing::cubic_out(progress.clamp(0.0, 1.0));
+    if active {
+        t
+    } else {
+        1.0 - t
+    }
 }
 
 /// Eased 0..1 value for a boolean target. repaints only while moving.
@@ -131,6 +220,37 @@ mod tests {
         // Clock going backwards / NaN never panics or overshoots.
         assert_eq!(intro_progress(1.0, 0.0, 0.18), 0.0);
         assert_eq!(intro_progress(f64::NAN, 1.0, 0.18), 1.0);
+    }
+
+    #[test]
+    fn press_scale_and_pop_curve() {
+        assert_eq!(press_factor(0.0, 0.94), 1.0);
+        assert!((press_factor(1.0, 0.94) - 0.94).abs() < 1e-6);
+        assert!((press_factor(0.5, 0.94) - 0.97).abs() < 1e-6);
+        // clamped
+        assert!((press_factor(2.0, 0.94) - 0.94).abs() < 1e-6);
+
+        // ring pop: starts at 0.8, overshoots ~1.12, settles to 1.0
+        assert!((pop_scale(0.0) - 0.8).abs() < 1e-6);
+        assert!((pop_scale(0.6) - 1.12).abs() < 1e-6);
+        assert!((pop_scale(1.0) - 1.0).abs() < 1e-6);
+        assert!(pop_scale(0.6) > pop_scale(0.9));
+        let mut prev = 0.8;
+        for i in 0..=60 {
+            let p = i as f32 / 60.0;
+            let v = pop_scale(p);
+            assert!(v >= 0.79 && v <= 1.121, "pop out of range at {p}: {v}");
+            if p <= 0.6 {
+                assert!(v + 1e-5 >= prev, "pop must rise until the overshoot");
+            }
+            prev = v;
+        }
+
+        // ring alpha
+        assert_eq!(ring_alpha(true, 0.0), 0.0);
+        assert_eq!(ring_alpha(true, 1.0), 1.0);
+        assert_eq!(ring_alpha(false, 0.0), 1.0);
+        assert_eq!(ring_alpha(false, 1.0), 0.0);
     }
 
     #[test]

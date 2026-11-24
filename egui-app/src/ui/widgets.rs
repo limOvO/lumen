@@ -5,11 +5,13 @@
 // surfaces, near-white primary buttons).
 
 use egui::{
-    Align, Align2, Color32, CornerRadius, CursorIcon, FontId, Painter, Pos2, Rect, Response, Sense,
-    Shape, Stroke, StrokeKind, Ui, Vec2,
+    Align, Align2, Color32, CornerRadius, CursorIcon, FontId, Id, Painter, Pos2, Rect, Response,
+    Sense, Shape, Stroke, StrokeKind, Ui, Vec2,
 };
 
 use crate::theme;
+
+use super::motion;
 
 pub const RADIUS: u8 = 8;
 pub const BTN_H: f32 = 30.0;
@@ -46,10 +48,21 @@ pub fn is_enabled(ui: &Ui, enabled: bool) -> bool {
     enabled && ui.is_enabled()
 }
 
+/// Disabled controls must not be clickable at all (egui custom widgets keep
+/// their sense otherwise, so a "disabled" 儲存 button would still emit clicks).
+fn sense(enabled: bool, desired: Sense) -> Sense {
+    if enabled {
+        desired
+    } else {
+        Sense::hover()
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Icons: 24×24 stroke drawings matched to the SVGs in src/index.html.
 // ---------------------------------------------------------------------------
 
+#[allow(dead_code)] // Shared icon vocabulary; some glyphs are only used by other chrome.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Icon {
     Brand,
@@ -524,7 +537,7 @@ pub fn bar_button(
     } else {
         (galley.size().x + icon_w + gap + 18.0).max(30.0)
     };
-    let (rect, resp) = ui.allocate_exact_size(Vec2::new(w, BTN_H), Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(Vec2::new(w, BTN_H), sense(enabled, Sense::click()));
     let color = paint_button_base(ui, rect, &resp, enabled, style, CornerRadius::same(RADIUS));
     let painter = ui.painter();
     let content_w = icon_w + gap + galley.size().x;
@@ -550,8 +563,12 @@ pub fn bar_button(
 /// An icon-only square button (30×30) for the top bar.
 pub fn icon_button(ui: &mut Ui, icon: Icon, tip: &str, enabled: bool) -> Response {
     let enabled = is_enabled(ui, enabled);
-    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(BTN_H), Sense::click());
-    let color = paint_button_base(ui, rect, &resp, enabled, Btn::default(), CornerRadius::same(RADIUS));
+    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(BTN_H), sense(enabled, Sense::click()));
+    let mut color = paint_button_base(ui, rect, &resp, enabled, Btn::default(), CornerRadius::same(RADIUS));
+    if !enabled {
+        // Web: disabled icon buttons keep the glyph faint, with no hover fill.
+        color = theme::DIM.gamma_multiply(0.4);
+    }
     paint_icon(ui.painter(), Rect::from_center_size(rect.center(), Vec2::splat(16.0)), icon, color, 1.8);
     finish(ui, rect, resp, enabled).on_hover_text(tip)
 }
@@ -589,7 +606,7 @@ pub fn pill_icon_button(
     enabled: bool,
 ) -> Response {
     let enabled = is_enabled(ui, enabled);
-    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(BTN_H), Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(BTN_H), sense(enabled, Sense::click()));
     let hovered = enabled && resp.hovered();
     let (fill, color) = if primary {
         (if hovered { Color32::WHITE } else { theme::TEXT }, theme::BG)
@@ -610,7 +627,7 @@ pub fn primary_block(ui: &mut Ui, label: &str, enabled: bool) -> Response {
     let enabled = is_enabled(ui, enabled);
     let (rect, resp) = ui.allocate_exact_size(
         Vec2::new(ui.available_width(), 34.0),
-        Sense::click(),
+        sense(enabled, Sense::click()),
     );
     let color = paint_button_base(ui, rect, &resp, enabled, Btn { primary: true, ..Default::default() }, CornerRadius::same(RADIUS));
     let painter = ui.painter();
@@ -629,7 +646,7 @@ pub fn ghost_block(ui: &mut Ui, label: &str, enabled: bool) -> Response {
     let enabled = is_enabled(ui, enabled);
     let (rect, resp) = ui.allocate_exact_size(
         Vec2::new(ui.available_width(), 32.0),
-        Sense::click(),
+        sense(enabled, Sense::click()),
     );
     let hovered = enabled && resp.hovered();
     let painter = ui.painter();
@@ -653,7 +670,7 @@ pub fn ghost_block(ui: &mut Ui, label: &str, enabled: bool) -> Response {
 /// A ghost action with an explicit width (used in dense rows).
 pub fn ghost_block_sized(ui: &mut Ui, label: &str, width: f32, enabled: bool) -> Response {
     let enabled = is_enabled(ui, enabled);
-    let (rect, resp) = ui.allocate_exact_size(Vec2::new(width, 30.0), Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(Vec2::new(width, 30.0), sense(enabled, Sense::click()));
     let hovered = enabled && resp.hovered();
     let painter = ui.painter();
     painter.rect_filled(rect, CornerRadius::same(RADIUS), if hovered { white(15) } else { Color32::TRANSPARENT });
@@ -676,7 +693,7 @@ pub fn ghost_block_sized(ui: &mut Ui, label: &str, width: f32, enabled: bool) ->
 /// A full-width ghost action with a leading icon.
 pub fn ghost_block_icon(ui: &mut Ui, label: &str, icon: Icon, enabled: bool) -> Response {
     let enabled = is_enabled(ui, enabled);
-    let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 32.0), Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 32.0), sense(enabled, Sense::click()));
     let hovered = enabled && resp.hovered();
     let color = if !enabled {
         disabled(theme::DIM)
@@ -723,7 +740,7 @@ pub fn link_button(ui: &mut Ui, label: &str, enabled: bool) -> Response {
         .layout_no_wrap(label.to_owned(), FontId::proportional(10.5), theme::TEXT);
     let (rect, resp) = ui.allocate_exact_size(
         Vec2::new(galley.size().x + 6.0, 22.0),
-        Sense::click(),
+        sense(enabled, Sense::click()),
     );
     let hovered = enabled && resp.hovered();
     ui.painter().text(
@@ -743,7 +760,7 @@ pub fn chip(ui: &mut Ui, label: &str, active: bool, enabled: bool) -> Response {
         .painter()
         .layout_no_wrap(label.to_owned(), FontId::proportional(10.5), theme::TEXT);
     let w = galley.size().x + 22.0;
-    let (rect, resp) = ui.allocate_exact_size(Vec2::new(w, 28.0), Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(Vec2::new(w, 28.0), sense(enabled, Sense::click()));
     let hovered = enabled && resp.hovered();
     let painter = ui.painter();
     let radius = CornerRadius::same(14);
@@ -791,15 +808,26 @@ pub fn sep_v(ui: &mut Ui) {
 // Swatches
 // ---------------------------------------------------------------------------
 
-/// A colour swatch; the active one gets a near-white ring.
-pub fn swatch(ui: &mut Ui, color: Color32, active: bool) -> Response {
+/// A colour swatch. The selection ring pops in (0.8 -> 1.12 -> 1 over 180 ms)
+/// and fades out on the previously selected swatch.
+pub fn swatch(ui: &mut Ui, anim_id: Id, color: Color32, active: bool) -> Response {
     let (rect, resp) = ui.allocate_exact_size(Vec2::splat(20.0), Sense::click());
+    let (progress, ring_alpha) = motion::toggle(ui.ctx(), anim_id, active, 0.18);
     let painter = ui.painter();
     let radius = if resp.hovered() { 10.5 } else { 10.0 };
     painter.circle_filled(rect.center(), radius, color);
     painter.circle_stroke(rect.center(), 10.0, Stroke::new(1.0_f32, white(40)));
-    if active {
-        painter.circle_stroke(rect.center(), 11.8, Stroke::new(2.0_f32, theme::TEXT));
+    if ring_alpha > 0.01 {
+        let scale = if active {
+            motion::pop_scale(progress)
+        } else {
+            1.0
+        };
+        painter.circle_stroke(
+            rect.center(),
+            11.8 * scale,
+            Stroke::new(2.0_f32, theme::TEXT.gamma_multiply(ring_alpha)),
+        );
     }
     finish(ui, rect, resp, true)
 }
