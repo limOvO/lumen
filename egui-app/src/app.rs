@@ -42,6 +42,7 @@ pub struct LumenApp {
     last_phase: Phase,
     phase_pending: bool,
     phase_anim: Option<PhaseAnim>,
+    debug_last_zoom: f32,
     switch: Option<(f32, f64)>,                   // direction, t0
     switch_dir: f32,
     perf: bool,
@@ -98,6 +99,7 @@ impl LumenApp {
             last_phase: Phase::Preview,
             phase_pending: false,
             phase_anim: None,
+            debug_last_zoom: -1.0,
             switch: None,
             switch_dir: 0.0,
             perf: false,
@@ -342,7 +344,21 @@ impl LumenApp {
 
     fn zoom_at(&mut self, factor: f32, anchor: Pos2, center: Pos2) {
         let old = self.state.view.scale;
-        let next = (old * factor).clamp(0.02, 16.0);
+        let mut next = (old * factor).clamp(0.02, 16.0);
+        // In the viewer the minimum is the fitted view (same padded formula the
+        // canvas uses); keyboard zoom used to allow going below it.
+        if self.state.phase == Phase::Preview {
+            if let Some((w, h)) = self.state.doc_size() {
+                let viewport = Vec2::new(center.x, center.y) * 2.0;
+                let floor = crate::interaction::preview_fit_scale(
+                    Vec2::new(w as f32, h as f32),
+                    viewport,
+                );
+                if next < floor {
+                    next = floor;
+                }
+            }
+        }
         let rel = anchor - center;
         self.state.view.offset = (self.state.view.offset - rel) * (next / old) + rel;
         self.state.view.scale = next;
@@ -695,6 +711,13 @@ impl eframe::App for LumenApp {
             self.dialog_snap = None;
         }
         self.log_event("frame");
+        if std::env::var_os("LUMEN_DEBUG_ZOOM").is_some() {
+            let s = self.state.view.scale;
+            if (s - self.debug_last_zoom).abs() > 1e-4 {
+                self.debug_last_zoom = s;
+                eprintln!("[zoom] {:.4}", s);
+            }
+        }
         if self.state.tool == crate::state::Tool::Text
             || self
                 .state

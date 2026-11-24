@@ -174,6 +174,14 @@ fn doc_dims(state: &AppState) -> Option<(u32, u32)> {
     state.doc.as_ref().map(|d| (d.width, d.height))
 }
 
+/// Preview fit scale: the canvas keeps 32px of breathing room per side, so the
+/// wheel/HUD floor must use the same padded viewport (otherwise zooming out
+/// stops at the *unpadded* fit, e.g. 33% instead of the 32% fit view).
+pub fn preview_fit_scale(doc: Vec2, viewport: Vec2) -> f32 {
+    let padded = (viewport - Vec2::splat(64.0)).max(Vec2::splat(1.0));
+    fit_scale_of(doc, padded)
+}
+
 /// Fit scale, same formula the canvas paints with (small images stay at 100%).
 fn fit_scale_of(doc: Vec2, viewport: Vec2) -> f32 {
     if doc.x <= 0.0 || doc.y <= 0.0 {
@@ -836,7 +844,7 @@ fn hit_linear_topmost(objects: &[Annot], pt: Pos2, tol: f32) -> Option<usize> {
 
 fn can_pan_preview(state: &AppState, view: &CanvasView) -> bool {
     let Some((w, h)) = doc_size(state) else { return false };
-    state.view.scale > fit_scale_of(Vec2::new(w, h), view.rect.size()) + 0.001
+    state.view.scale > preview_fit_scale(Vec2::new(w, h), view.rect.size()) + 0.001
 }
 
 // ---------------------------------------------------------------------------
@@ -859,7 +867,7 @@ fn update_wheel(
         }
         let factor = (input.scroll.y * 0.0013).exp().clamp(0.86, 1.15);
         let Some((w, h)) = doc_size(state) else { return };
-        let min = fit_scale_of(Vec2::new(w, h), view.rect.size());
+        let min = preview_fit_scale(Vec2::new(w, h), view.rect.size());
         let next = (state.view.scale * factor).clamp(min, MAX_SCALE);
         zoom_to(state, view, next, anchor);
         let content = Vec2::new(w, h) * state.view.scale;
@@ -1223,6 +1231,17 @@ mod tests {
         approx(fit_scale_of(Vec2::new(2000.0, 1000.0), Vec2::new(1000.0, 800.0)), 0.5);
         approx(fit_scale_of(Vec2::new(200.0, 100.0), Vec2::new(1000.0, 800.0)), 1.0);
         approx(fit_scale_of(Vec2::new(0.0, 0.0), Vec2::new(100.0, 100.0)), 1.0);
+    }
+
+    #[test]
+    fn preview_floor_uses_the_padded_fit() {
+        // 2600x2000 in a 928x748 canvas: unpadded fit 35.7%, padded 33.2%.
+        let vp = Vec2::new(928.0, 748.0);
+        let doc = Vec2::new(2600.0, 2000.0);
+        let padded = preview_fit_scale(doc, vp);
+        let unpadded = fit_scale_of(doc, vp);
+        approx(padded, 0.3323);
+        assert!(unpadded > padded + 0.02);
     }
 
     #[test]

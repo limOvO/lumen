@@ -8,14 +8,28 @@ use crate::theme;
 
 use super::widgets::{self, Icon};
 
-/// The "fit to window" scale for the current document, if any.
+/// The "fit to window" scale for the current document, if any. Uses the same
+/// 32px-per-side stage padding as the canvas so the zoom-out floor equals the
+/// fitted view exactly (the HUD used to stop one percent short of it).
 pub fn fit_scale(ctx: &egui::Context, state: &AppState) -> Option<f32> {
     let (w, h) = state.doc_size()?;
     if w == 0 || h == 0 {
         return None;
     }
     let screen = ctx.screen_rect();
-    Some((screen.width() / w as f32).min(screen.height() / h as f32).min(1.0))
+    let viewport = match state.phase {
+        crate::state::Phase::Preview => screen.size(),
+        crate::state::Phase::Edit => {
+            let (collapsed, insp_w) = crate::ui::local::get(ctx, |l| {
+                (l.inspector_collapsed, l.inspector_width)
+            });
+            Vec2::new(
+                screen.width() - theme::RAIL_W - if collapsed { 0.0 } else { insp_w },
+                screen.height() - theme::TOPBAR_H - theme::STATUS_H,
+            )
+        }
+    };
+    Some(crate::interaction::preview_fit_scale(Vec2::new(w as f32, h as f32), viewport))
 }
 
 /// Multiply the zoom around the canvas centre. `floor` prevents zooming out

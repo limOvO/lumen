@@ -8,7 +8,7 @@ Tauri/WebKit build in this repo, driven by the same scripts.
 | # | Area | Reference behaviour | Verification (verify.py check ids) |
 |---|---|---|---|
 | 1 | Open | File manager / CLI opens straight into the viewer | B14/B16/B17 (launch, single instance, forwarded file) |
-| 2 | Preview | fit ≥ min scale, wheel zoom at cursor, drag-pan only when zoomed | B1/B2 zoom + fit |
+| 2 | Preview | fit ≥ min scale, wheel zoom at cursor, drag-pan only when zoomed; zooming out stops at the **padded** fit view (the wheel/HUD/keyboard floor used the unpadded viewport, so 32% could only return to 33%) | B1/B2, B25 (floor == padded fit) |
 | 3 | Navigation | ← → through the folder, counter chip | A1 image switch + G3 chip |
 | 4 | Info | dimensions, format, size, mtime, path, EXIF rows | B3/B4 card open/close |
 | 5 | Edit entry | E / button, rail + panels + dock appear | G6/G7/G8 + A3 rail slide |

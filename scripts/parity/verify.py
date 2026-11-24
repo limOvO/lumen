@@ -969,6 +969,40 @@ def main():
         stop(p)
         cleanup()
 
+    # ---- viewer zoom-out floor must be the fitted view (not the unpadded fit) ----
+    floor_dir = Path("/tmp/parity-zoom-floor")
+    floor_dir.mkdir(exist_ok=True)
+    floor_img = floor_dir / "wide.jpg"
+    Image.new("RGB", (3800, 2360), (70, 90, 130)).save(floor_img, quality=85)
+    cleanup()
+    env = dict(ENV); env["LUMEN_DEBUG_ZOOM"] = "1"
+    fp = subprocess.Popen([str(app), str(floor_img)], env=env,
+                          stdout=subprocess.DEVNULL,
+                          stderr=open(OUT / "zoom-floor.log", "w"))
+    try:
+        if not wait_window("Lumen", 25.0):
+            raise RuntimeError("zoom-floor window did not appear")
+        focus(); time.sleep(2.5)
+        xdo("mousemove", 640, 400)
+        xdo("click", "--repeat", "4", "4")   # wheel up
+        time.sleep(0.5)
+        xdo("click", "--repeat", "25", "5")  # wheel down
+        time.sleep(1.0)
+        vals = [float(l.split()[1]) for l in
+                (OUT / "zoom-floor.log").read_text().splitlines() if l.startswith("[zoom]")]
+        got = vals[-1] if vals else 0.0
+        wid_ = wait_window()
+        geo = run(["xdotool", "getwindowgeometry", "--shell", wid_]).stdout
+        gv = dict(line.split("=") for line in geo.strip().splitlines() if "=" in line)
+        sw, sh = int(gv.get("WIDTH", 1280)), int(gv.get("HEIGHT", 820))
+        expected = min((sw - 64) / 3800, (sh - 64) / 2360)
+        check("B25", "viewer zoom-out stops exactly at the fitted view (padded fit)",
+              abs(got - expected) <= 0.002,
+              f"min scale {got:.4f} vs fit {expected:.4f}")
+    finally:
+        stop(fp)
+        cleanup()
+
     # ---- micro-interactions: tool pill/bar slide, swatch pop, shortcuts close ----
     p = start(app, fx)
     try:
