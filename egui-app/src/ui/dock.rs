@@ -2,7 +2,7 @@
 // swatches + custom colour, dashed toggle (hidden for text), width, opacity and
 // font size. Asleep (dimmed) until the pointer approaches, like the web build.
 
-use egui::{Align, Align2, Color32, CornerRadius, Id, Layout, Order, Rect, Sense, Stroke, Vec2};
+use egui::{Align, Align2, Color32, CornerRadius, Id, Layout, Order, Pos2, Rect, Sense, Stroke, Vec2};
 
 use crate::state::{AppState, Phase, Tool};
 use crate::theme;
@@ -122,21 +122,15 @@ pub fn show(ctx: &egui::Context, state: &mut AppState) {
             ui.set_max_width(dock_w);
             ui.set_opacity(opacity);
             egui::Frame::new()
-                // Web: rgba(24,24,26,.94–.96) with `box-shadow: 0 10px 30px rgba(0,0,0,.4)`.
-                .fill(Color32::from_rgb(24, 24, 26))
-                .stroke(Stroke::new(1.0_f32, widgets::white(40)))
+                // Web final override: rgba(24,24,26,.94), 1px var(--line), no shadow.
+                .fill(Color32::from_rgba_unmultiplied(24, 24, 26, 240))
+                .stroke(Stroke::new(1.0_f32, widgets::white(36)))
                 .corner_radius(CornerRadius::same(14))
-                .shadow(egui::epaint::Shadow {
-                    offset: [0, 10],
-                    blur: 30,
-                    spread: 0,
-                    color: Color32::from_rgba_unmultiplied(0, 0, 0, 102),
-                })
                 .inner_margin(egui::Margin::symmetric(14, 10))
                 .show(ui, |ui| {
                     ui.set_width(dock_w - 28.0);
                     ui.horizontal_wrapped(|ui| {
-                        ui.spacing_mut().item_spacing = Vec2::new(14.0, 8.0);
+                        ui.spacing_mut().item_spacing = Vec2::new(10.0, 8.0);
                         // Colour swatches + custom colour + dashed toggle.
                         // Web centres the swatch row against the slider stacks;
                         // a plain nested horizontal aligned them to the top.
@@ -162,11 +156,18 @@ pub fn show(ctx: &egui::Context, state: &mut AppState) {
                                 ui.allocate_exact_size(Vec2::splat(20.0), Sense::click());
                             let painter = ui.painter();
                             painter.circle_filled(rect.center(), 10.0, widgets::SURFACE);
-                            painter.circle_stroke(
-                                rect.center(),
-                                10.0,
-                                Stroke::new(1.0_f32, widgets::white(45)),
-                            );
+                            let ring: Vec<Pos2> = (0..=48)
+                                .map(|i| {
+                                    let a = i as f32 / 48.0 * std::f32::consts::TAU;
+                                    rect.center() + Vec2::new(10.0 * a.cos(), 10.0 * a.sin())
+                                })
+                                .collect();
+                            painter.add(egui::Shape::dashed_line(
+                                &ring,
+                                Stroke::new(1.0_f32, widgets::white(36)),
+                                3.0,
+                                2.0,
+                            ));
                             widgets::paint_icon(
                                 painter,
                                 Rect::from_center_size(rect.center(), Vec2::splat(13.0)),

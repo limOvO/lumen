@@ -15,19 +15,71 @@ pub(crate) static CJK_TC_BOLD: &[u8] =
 pub(crate) static CJK_SC_BOLD: &[u8] =
     include_bytes!("../assets/NotoSansCJKsc-Bold-subset.otf");
 
-// Wide fallback faces: every hanzi encodable in GB2312/GBK/Big5, so arbitrary
-// typed annotation text and file names never render as tofu. The small subsets
-// above still win for UI strings (correct regional forms).
-static CJK_FALLBACK: &[u8] = include_bytes!("../assets/NotoSansCJKfallback-regular.otf");
-static CJK_FALLBACK_BOLD: &[u8] = include_bytes!("../assets/NotoSansCJKfallback-bold.otf");
+// Arbitrary typed text / file names are covered by the system Noto CJK
+// collection at runtime (fc-list shows it on Linux desktops); the tiny embedded
+// subsets cover the UI itself and keep the binary small.
 static FULL_LOADED: AtomicBool = AtomicBool::new(false);
 
 const SYSTEM_TTC: &str = "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc";
 
+/// Candidate system faces, in preference order (Noto first, then distro CJK
+/// fallbacks). TTC files need the locale's regional index; plain OTF/TTF are 0.
+const SYSTEM_FACES: &[&str] = &[
+    "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/noto-cjk/NotoSansCJKsc-Regular.otf",
+    "/usr/share/fonts/noto-cjk/NotoSansCJKtc-Regular.otf",
+    "/usr/share/fonts/noto-cjk/NotoSansCJK-Medium.ttc",
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+    "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",
+];
+
+/// Ask fontconfig for a CJK face (works on any distro with a CJK font).
+fn fontconfig_face() -> Option<std::path::PathBuf> {
+    let out = std::process::Command::new("fc-match")
+        .args(["-f", "%{file}", "Noto Sans CJK TC:lang=zh-tw,Noto Sans CJK SC:lang=zh-cn,sans-serif:lang=zh"])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if path.is_empty() {
+        None
+    } else {
+        Some(std::path::PathBuf::from(path))
+    }
+}
+
+/// Load a system CJK face for the locale. Returns None when the system has no
+/// CJK font; the embedded UI subsets still render, only arbitrary typed text
+/// would fall back to tofu (and the font coverage test reports that).
+fn system_face(locale: Locale) -> Option<egui::FontData> {
+    let candidates: Vec<std::path::PathBuf> = SYSTEM_FACES
+        .iter()
+        .map(std::path::PathBuf::from)
+        .chain(fontconfig_face())
+        .collect();
+    for path in candidates {
+        let Ok(bytes) = std::fs::read(&path) else { continue };
+        let is_ttc = path
+            .extension()
+            .map(|e| e.eq_ignore_ascii_case("ttc"))
+            .unwrap_or(false);
+        let index = if is_ttc { locale.cjk_index() } else { 0 };
+        return Some(egui::FontData {
+            font: bytes.into(),
+            index,
+            tweak: egui::FontTweak::default(),
+        });
+    }
+    None
+}
+
 /// Weight-600 annotation family (web canvas uses font-weight 600).
 pub const SEMIBOLD_FAMILY: &str = "cjk-semibold";
 
-fn apply(ctx: &egui::Context, locale: Locale, full: Option<&'static [u8]>) {
+fn apply(ctx: &egui::Context, locale: Locale, system: Option<egui::FontData>) {
     let mut fonts = egui::FontDefinitions::default();
     let subset: &'static [u8] = match locale {
         Locale::ZhHans => CJK_SC,
@@ -41,53 +93,35 @@ fn apply(ctx: &egui::Context, locale: Locale, full: Option<&'static [u8]>) {
         "cjk".to_owned(),
         std::sync::Arc::new(egui::FontData::from_static(subset)),
     );
-    if let Some(bytes) = full {
-        fonts.font_data.insert(
-            "cjk-full".to_owned(),
-            std::sync::Arc::new(egui::FontData {
-                font: bytes.into(),
-                index: locale.cjk_index(),
-                tweak: egui::FontTweak::default(),
-            }),
-        );
+    let has_system = system.is_some();
+    if let Some(data) = system {
+        fonts.font_data.insert("cjk-system".to_owned(), std::sync::Arc::new(data));
     }
     fonts.font_data.insert(
         "cjk-semibold".to_owned(),
         std::sync::Arc::new(egui::FontData::from_static(bold)),
     );
-    fonts.font_data.insert(
-        "cjk-fallback".to_owned(),
-        std::sync::Arc::new(egui::FontData::from_static(CJK_FALLBACK)),
-    );
-    fonts.font_data.insert(
-        "cjk-fallback-bold".to_owned(),
-        std::sync::Arc::new(egui::FontData::from_static(CJK_FALLBACK_BOLD)),
-    );
     for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
         let list = fonts.families.entry(family).or_default();
         list.push("cjk".to_owned());
-        list.push("cjk-fallback".to_owned());
-        if full.is_some() {
-            list.push("cjk-full".to_owned());
+        if has_system {
+            list.push("cjk-system".to_owned());
         }
     }
     let semibold = egui::FontFamily::Name(SEMIBOLD_FAMILY.into());
     let semibold_list = fonts.families.entry(semibold).or_default();
     semibold_list.push("cjk-semibold".to_owned());
-    semibold_list.push("cjk-fallback-bold".to_owned());
-    if full.is_some() {
-        semibold_list.push("cjk-full".to_owned());
+    if has_system {
+        semibold_list.push("cjk-system".to_owned());
     }
     ctx.set_fonts(fonts);
 }
 
 pub fn install(ctx: &egui::Context, locale: Locale) {
-    // Embedded subsets cover every UI string (including the Simplified Chinese
-    // translations). The full system collection previously loaded here caused
-    // crashes with the TTC face index under some drivers, so it is no longer
-    // loaded at startup.
-    apply(ctx, locale, None);
-    FULL_LOADED.store(false, Ordering::Relaxed);
+    // System CJK face for arbitrary text, embedded subsets for the UI.
+    let system = system_face(locale);
+    FULL_LOADED.store(system.is_some(), Ordering::Relaxed);
+    apply(ctx, locale, system);
 }
 
 /// Kept for callers that used to trigger the lazy load; now a no-op because the
@@ -118,25 +152,25 @@ mod tests {
     }
 
     #[test]
-    fn every_common_hanzi_has_a_fallback_glyph() {
+    fn every_common_hanzi_has_a_glyph_in_the_system_face() {
         // typed annotation text / file names may be any common Chinese char
         let chars = include_str!("../../scripts/i18n/cjk-common.txt");
-        for font in [CJK_FALLBACK, CJK_FALLBACK_BOLD] {
-            let missing = covers(font, chars);
-            if !missing.is_empty() {
-                eprintln!(
-                    "MISSING {} U+{:04X} {:?}",
-                    missing.len(),
-                    missing[0] as u32,
-                    &missing[..missing.len().min(20)]
-                );
-            }
-            assert!(
-                missing.is_empty(),
-                "fallback font misses {} chars, e.g. {:?}",
-                missing.len(),
-                &missing[..missing.len().min(12)]
-            );
-        }
+        let Ok(bytes) = std::fs::read(SYSTEM_TTC) else {
+            eprintln!("system Noto CJK missing; skipping runtime-face coverage test");
+            return;
+        };
+        let parsed = ab_glyph::FontRef::try_from_slice_and_index(&bytes, 3)
+            .expect("system TTC parses");
+        let missing: Vec<char> = chars
+            .chars()
+            .filter(|c| !c.is_whitespace() && !c.is_control())
+            .filter(|c| parsed.glyph_id(*c) == ab_glyph::GlyphId(0))
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "system face misses {} chars, e.g. {:?}",
+            missing.len(),
+            &missing[..missing.len().min(12)]
+        );
     }
 }

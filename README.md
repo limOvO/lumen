@@ -116,7 +116,7 @@ A second build of Lumen is being ported to **Rust + wgpu + egui** (no WebView) t
 Loupe-class footprint with GPU rendering:
 
 ```bash
-scripts/build-egui.sh            # → dist/lumen-egui (~47 MB with full CJK fallback faces)
+scripts/build-egui.sh            # → dist/lumen-egui (~15 MB; CJK comes from the system font)
 scripts/install-egui.sh          # install to ~/.local (add --desktop-shortcut / --set-default)
 WGPU_BACKEND=gl ./dist/lumen-egui photo.jpg    # GL fallback for headless/software GL
 ```

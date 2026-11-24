@@ -812,21 +812,25 @@ pub fn sep_v(ui: &mut Ui) {
 /// and fades out on the previously selected swatch.
 pub fn swatch(ui: &mut Ui, anim_id: Id, color: Color32, active: bool) -> Response {
     let (rect, resp) = ui.allocate_exact_size(Vec2::splat(20.0), Sense::click());
-    let (progress, ring_alpha) = motion::toggle(ui.ctx(), anim_id, active, 0.18);
+    let hover = motion::blend(ui.ctx(), anim_id.with("hover"), resp.hovered(), 0.12);
+    let ring = motion::blend(ui.ctx(), anim_id, active, 0.12);
+    let scale = 1.0 + 0.08 * hover;
+    let center = rect.center();
     let painter = ui.painter();
-    let radius = if resp.hovered() { 10.5 } else { 10.0 };
-    painter.circle_filled(rect.center(), radius, color);
-    painter.circle_stroke(rect.center(), 10.0, Stroke::new(1.0_f32, white(40)));
-    if ring_alpha > 0.01 {
-        let scale = if active {
-            motion::pop_scale(progress)
-        } else {
-            1.0
-        };
+    // web `.swatch`: 20px circle, `border: 1px solid var(--line)`,
+    // `:hover { transform: scale(1.08) }`
+    painter.circle_filled(center, 10.0 * scale, color);
+    painter.circle_stroke(
+        center,
+        10.0 * scale - 0.5,
+        Stroke::new(1.0_f32, white(36)),
+    );
+    // web `#style-dock .swatch.is-active { box-shadow: 0 0 0 2px var(--brand) }`
+    if ring > 0.01 {
         painter.circle_stroke(
-            rect.center(),
-            11.8 * scale,
-            Stroke::new(2.0_f32, theme::TEXT.gamma_multiply(ring_alpha)),
+            center,
+            11.0 * scale,
+            Stroke::new(2.0_f32, theme::TEXT.gamma_multiply(ring)),
         );
     }
     finish(ui, rect, resp, true)
@@ -845,7 +849,7 @@ pub fn toggle_swatch(ui: &mut Ui, icon: Icon, active: bool, tip: &str) -> Respon
         SURFACE
     };
     painter.circle_filled(rect.center(), 10.0, fill);
-    painter.circle_stroke(rect.center(), 10.0, Stroke::new(1.0_f32, white(34)));
+    painter.circle_stroke(rect.center(), 10.0, Stroke::new(1.0_f32, white(36)));
     let color = if active {
         theme::BG
     } else if hovered {
@@ -853,7 +857,21 @@ pub fn toggle_swatch(ui: &mut Ui, icon: Icon, active: bool, tip: &str) -> Respon
     } else {
         theme::DIM
     };
-    paint_icon(painter, Rect::from_center_size(rect.center(), Vec2::splat(14.0)), icon, color, 1.8);
+    // The web's dashed toggle is three short dashes (14px); drawn as round dots
+    // so they stay distinct at this size (a stroked polyline merges visually).
+    if matches!(icon, Icon::Dashed) {
+        for dx in [-4.0_f32, 0.0, 4.0] {
+            painter.circle_filled(rect.center() + Vec2::new(dx, 0.0), 1.1, color);
+        }
+    } else {
+        paint_icon(
+            painter,
+            Rect::from_center_size(rect.center(), Vec2::splat(14.0)),
+            icon,
+            color,
+            1.8,
+        );
+    }
     finish(ui, rect, resp, true).on_hover_text(tip)
 }
 
@@ -886,20 +904,18 @@ pub fn slider(
     let t = ((v - min) / (max - min)).clamp(0.0, 1.0);
     let painter = ui.painter();
     let cy = rect.center().y;
+    // web `.range::-webkit-slider-runnable-track`: height 4, radius 2,
+    // background rgba(255,255,255,.16) — no filled progress segment.
     let track = Rect::from_min_max(
         Pos2::new(rect.left(), cy - 2.0),
         Pos2::new(rect.right(), cy + 2.0),
     );
     painter.rect_filled(track, CornerRadius::same(2), white(41));
-    let fill_to = rect.left() + rect.width() * t;
-    painter.rect_filled(
-        Rect::from_min_max(Pos2::new(rect.left(), cy - 2.0), Pos2::new(fill_to, cy + 2.0)),
-        CornerRadius::same(2),
-        if enabled { theme::TEXT } else { white(70) },
-    );
-    let thumb = Pos2::new(fill_to, cy);
-    painter.circle_filled(thumb, 6.5, if enabled { theme::TEXT } else { white(90) });
-    painter.circle_stroke(thumb, 6.5, Stroke::new(2.0_f32, theme::PANEL));
+    // web thumb: 13px total, `border: 2px solid var(--panel)`, background brand.
+    let thumb = Pos2::new(rect.left() + rect.width() * t, cy);
+    let brand = if enabled { theme::TEXT } else { white(90) };
+    painter.circle_filled(thumb, 6.5, theme::PANEL);
+    painter.circle_filled(thumb, 4.5, brand);
     finish(ui, rect, resp, enabled)
 }
 

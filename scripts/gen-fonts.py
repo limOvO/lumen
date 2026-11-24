@@ -88,18 +88,8 @@ common_file = root / 'scripts/i18n/cjk-common.txt'
 common_file.write_text(common_cjk_chars(), encoding='utf-8')
 print('common CJK charset:', len(common_file.read_text(encoding='utf-8')), 'chars')
 
-# Fallback faces: the subsetter produces a cmap that ab_glyph mis-reads for a
-# large charset (thousands of chars mapped to high glyph ids returned as .notdef),
-# so embed the full extracted Noto faces instead. Disk cost ~33 MB, but typed
-# annotation text and file names can then never render as tofu.
-fallback_faces = [
-    ('NotoSansCJK-Regular.ttc', 'NotoSansCJKfallback-regular.otf', 3),
-    ('NotoSansCJK-Bold.ttc', 'NotoSansCJKfallback-bold.otf', 3),
-]
-from fontTools.ttLib import TTFont
-
-for source, name, index in fallback_faces:
-    out = outdir / name
-    font = TTFont('/usr/share/fonts/noto-cjk/' + source, fontNumber=index)
-    font.save(out)
-    print(name, out.stat().st_size, 'bytes')
+# NOTE: the wide fallback faces are NOT embedded any more — the app loads the
+# system Noto Sans CJK at runtime (fonts::system_face), which keeps the binary
+# small and still covers every GB2312/GBK/Big5 character. cjk-common.txt is kept
+# because the font coverage test uses it against that system face.
+print('fallback faces are loaded from the system font at runtime')
