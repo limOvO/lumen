@@ -1088,6 +1088,38 @@ def main():
         stop(p)
         cleanup()
 
+    # ---- image switch latency (prefetched neighbours + fast JPEG decode) ----
+    bigdir = Path("/tmp/parity-switch-latency")
+    bigdir.mkdir(exist_ok=True)
+    base = Image.open(fx).convert("RGB").resize((4000, 3000))
+    for i in range(3):
+        img = base if i == 0 else (base.rotate(180) if i == 1 else base.transpose(Image.FLIP_LEFT_RIGHT))
+        img.save(bigdir / f"{i + 1:02}.jpg", quality=88)
+    cleanup()
+    p = start(app, bigdir / "01.jpg")
+    try:
+        focus(); time.sleep(3.5)
+        wid = wait_window()
+        def win_title():
+            return run(["xdotool", "getwindowname", wid]).stdout.strip()
+        latencies = []
+        for _ in range(3):
+            prev = win_title()
+            xdo("key", "--clearmodifiers", "Right")
+            t0 = time.time()
+            while time.time() - t0 < 3.0:
+                if win_title() != prev:
+                    break
+                time.sleep(0.003)
+            latencies.append((time.time() - t0) * 1000.0)
+            time.sleep(0.6)
+        med = statistics.median(latencies)
+        check("P3", "switching to the next image is fast (prefetched, <=60 ms median)",
+              med <= 60.0, f"median {med:.1f} ms of {[round(x,1) for x in latencies]}")
+    finally:
+        stop(p)
+        cleanup()
+
     # ---- performance ----
     if quick:
         check("P2", "benchmark (skipped in --quick)", True, "quick mode")

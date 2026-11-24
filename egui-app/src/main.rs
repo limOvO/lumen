@@ -8,6 +8,7 @@ mod export;
 mod fonts;
 mod i18n;
 mod i18n_data;
+mod jpeg_fast;
 mod interaction;
 mod save;
 mod single_instance;

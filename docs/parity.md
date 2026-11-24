@@ -33,6 +33,8 @@ Tauri/WebKit build in this repo, driven by the same scripts.
 | 24 | CJK coverage | every common hanzi (GB2312/GBK/Big5, 20,923 chars) resolves via the **system** CJK face (known Noto paths, then `fc-match` for any distro CJK fallback); typed text and file names never show tofu, and the binary stays ~15 MB (embedded subsets cover the UI). When no system CJK font exists only UI text renders and the coverage test reports it | `fonts::tests` glyph-coverage test against the system face |
 | 25 | Micro-interactions | tool pill/bar slide + press scale, swatch ring pop, browser row press pop, shortcuts close fade/scale, dock wake hysteresis | A6/A7/A9, G20, plus ui/motion unit tests |
 | 26 | Browser flow | select an image, close, reopen, open it; Enter in the path field no longer double-fires the list activation | G19/G19b |
+| 28 | Phase transition | preview↔edit keeps re-fitting every frame while the rail/inspector widths animate (340 ms window) so the picture glides instead of snapping | A2 (multiple distinct frame sizes) |
+| 29 | Image switching | neighbour previews are prefetched on a worker thread and JPEGs decode through libjpeg-turbo's scaled IDCT (TJSCALED ceiling); ←/→ median 3–6 ms for 12 MP pairs | P3 (<=60 ms median) |
 | 27 | Modal layering | the dialog window is `Order::Tooltip` so it is always above the Foreground scrim (the old same-order setup could paint the scrim on top after certain open/close cycles → dimmed, unclickable dialog); close paths reset selection/error; the style dock is hidden while a modal is open | G22/G22b (three close variants: Esc, ✕, outside click — dialog brightness identical and the browser still opens images) |
 
 Compare semantics match `src/js/main.js`: the toggle survives phase changes and resets

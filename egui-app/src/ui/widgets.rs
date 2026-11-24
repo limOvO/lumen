@@ -825,11 +825,12 @@ pub fn swatch(ui: &mut Ui, anim_id: Id, color: Color32, active: bool) -> Respons
         10.0 * scale - 0.5,
         Stroke::new(1.0_f32, white(36)),
     );
-    // web `#style-dock .swatch.is-active { box-shadow: 0 0 0 2px var(--brand) }`
+    // Selection ring drawn *inside* the swatch (user preference; the web puts
+    // it outside, but the inner ring reads better on both dark and light fills).
     if ring > 0.01 {
         painter.circle_stroke(
             center,
-            11.0 * scale,
+            7.2 * scale,
             Stroke::new(2.0_f32, theme::TEXT.gamma_multiply(ring)),
         );
     }

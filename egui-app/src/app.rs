@@ -26,7 +26,7 @@ pub struct LumenApp {
     incoming: Option<Receiver<PathBuf>>,
     last_phase: Phase,
     phase_pending: bool,
-    view_anim: Option<(f32, f32, f32, f32, f64)>, // start_scale, start_off, target_scale, target_off, t0
+    fit_smooth_until: f64, // keep re-fitting smoothly while panels slide
     switch: Option<(f32, f64)>,                   // direction, t0
     switch_dir: f32,
     perf: bool,
@@ -82,7 +82,7 @@ impl LumenApp {
             incoming,
             last_phase: Phase::Preview,
             phase_pending: false,
-            view_anim: None,
+            fit_smooth_until: 0.0,
             switch: None,
             switch_dir: 0.0,
             perf: false,
@@ -107,6 +107,31 @@ impl LumenApp {
                 }
                 self.state.siblings = siblings(path);
                 self.state.index = self.state.siblings.iter().position(|p| p == path).unwrap_or(0);
+                let cap = max_pixels(ctx);
+                let neighbours: Vec<std::path::PathBuf> = {
+                    let i = self.state.index;
+                    [-1i64, 1]
+                        .iter()
+                        .filter_map(|d| {
+                            let j = i as i64 + d;
+                            if j >= 0 && (j as usize) < self.state.siblings.len() {
+                                Some(self.state.siblings[j as usize].clone())
+                            } else {
+                                None
+                            }
+                        })
+                        .collect()
+                };
+                if !neighbours.is_empty() {
+                    // One worker decodes both neighbours sequentially (lower peak
+                    // memory than two concurrent decodes) after the first paint.
+                    std::thread::spawn(move || {
+                        std::thread::sleep(std::time::Duration::from_millis(250));
+                        for path in neighbours {
+                            crate::doc::preload_preview(path, cap);
+                        }
+                    });
+                }
                 self.state.doc = Some(doc);
                 self.state.error = None;
                 self.state.reset_for_doc();
@@ -456,27 +481,18 @@ impl LumenApp {
                 let fit_scale = (stage.width() / w).min(stage.height() / h).min(1.0);
                 if self.phase_pending {
                     self.phase_pending = false;
-                    self.view_anim = Some((
-                        self.state.view.scale,
-                        self.state.view.offset.y,
-                        fit_scale,
-                        0.0,
-                        now(),
-                    ));
+                    // The rail/inspector widths animate for 240 ms; re-fit every
+                    // frame during that window so the picture glides smoothly
+                    // instead of snapping at the end.
+                    self.fit_smooth_until = now() + 0.34;
                 }
-                if let Some((s0, y0, s1, y1, t0)) = self.view_anim {
-                    let p = (((now() - t0) / 0.26) as f32).clamp(0.0, 1.0);
-                    let e = 1.0 - (1.0 - p).powi(3);
-                    self.state.view.scale = s0 + (s1 - s0) * e;
-                    self.state.view.offset = Vec2::new(0.0, y0 + (y1 - y0) * e);
+                if now() < self.fit_smooth_until {
+                    let dt = ctx.input(|i| i.stable_dt).clamp(0.001, 0.05);
+                    let k = 1.0 - (-dt * 22.0).exp();
+                    self.state.view.scale += (fit_scale - self.state.view.scale) * k;
+                    self.state.view.offset += (Vec2::ZERO - self.state.view.offset) * k;
                     self.state.view.fit = false;
-                    if p < 1.0 {
-                        ctx.request_repaint();
-                    } else {
-                        self.state.view.fit = true;
-                        self.state.view.offset = Vec2::ZERO;
-                        self.view_anim = None;
-                    }
+                    ctx.request_repaint();
                 } else if self.state.view.fit {
                     // Web parity: the fit view keeps 32 px of breathing room on
                     // every side (64 px total per axis) before fitting.
@@ -662,11 +678,13 @@ fn now() -> f64 {
 }
 
 fn max_pixels(ctx: Option<&egui::Context>) -> u64 {
+    // 2x the viewport keeps fit-view sharp without wasting RAM on huge decodes;
+    // zooming past `decoded_scale` triggers the async full-res upgrade anyway.
     let (w, h) = ctx
         .map(|c| {
             let r = c.screen_rect();
             (r.width().max(640.0), r.height().max(480.0))
         })
         .unwrap_or((1280.0, 820.0));
-    ((w * h * 4.0) as u64).max(3_500_000)
+    ((w * h * 1.75) as u64).max(2_500_000)
 }
