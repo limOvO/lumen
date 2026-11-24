@@ -916,6 +916,59 @@ def main():
         stop(p)
         cleanup()
 
+    # ---- repeated browser open/close cycles must stay bright and interactive ----
+    cleanup()
+    p = start(app, fx)
+    try:
+        focus(); time.sleep(2.5)
+        key("e", 0.8)
+        key("b", 0.5)   # dock visible while the modal opens (the old dimming trigger)
+        time.sleep(0.5)
+        measurements = []
+        def dialog_mean():
+            im = img_arr(shot("egui-33-cycle"))
+            cell = im.crop((330, 140, 950, 700)).convert("L")
+            return statistics.mean(cell.getdata())
+        def open_select_close(how):
+            key("ctrl+o", 0.8)
+            time.sleep(1.0)
+            xdo("mousemove", 590, 183, "click", "1"); time.sleep(0.3)
+            key("ctrl+a", 0.2)
+            xdo("type", "--delay", "10", str(outline))
+            time.sleep(0.3)
+            key("Return", 1.1)
+            xdo("mousemove", 500, 262, "click", "1"); time.sleep(0.5)
+            measurements.append(dialog_mean())
+            if how == "esc":
+                key("Escape", 0.8)
+            elif how == "x":
+                xdo("mousemove", 912, 124, "click", "1"); time.sleep(0.9)
+            else:
+                xdo("mousemove", 120, 700, "click", "1"); time.sleep(0.9)
+            time.sleep(0.5)
+        open_select_close("esc")
+        open_select_close("x")
+        open_select_close("outside")
+        stable = max(measurements) - min(measurements) <= 4.0
+        check("G22", "reopened browser keeps the same brightness (no stuck scrim)",
+              stable, f"dialog means {[round(m,1) for m in measurements]}")
+        # and it is still usable: open an image after the cycles
+        key("ctrl+o", 0.8)
+        time.sleep(1.0)
+        xdo("mousemove", 590, 183, "click", "1"); time.sleep(0.3)
+        key("ctrl+a", 0.2)
+        xdo("type", "--delay", "10", str(outline))
+        time.sleep(0.3)
+        key("Return", 1.1)
+        xdo("mousemove", 500, 262, "click", "1"); time.sleep(0.5)
+        xdo("mousemove", 908, 183, "click", "1"); time.sleep(1.8)
+        title = run(["xdotool", "getwindowname", wait_window()]).stdout.strip()
+        check("G22b", "browser still opens images after several close cycles",
+              "fixture-" in title, title)
+    finally:
+        stop(p)
+        cleanup()
+
     # ---- micro-interactions: tool pill/bar slide, swatch pop, shortcuts close ----
     p = start(app, fx)
     try:

@@ -127,7 +127,7 @@ inspector slide, dock rise, peek card, image switch, phase glide), annotation to
 export with JPEG/lossy-WebP target-KB compression, save/save-as, in-app folder browser with
 thumbnails, single-instance forwarding, 80-step undo, three languages.
 
-Verified by `python3 scripts/parity/verify.py`: **60 automated checks** (geometry, palette
+Verified by `python3 scripts/parity/verify.py`: **62 automated checks** (geometry, palette
 delta 0 against a live WebView capture, chrome regions, all tools, undo/redo, compare, crop,
 zoom/fit, animations, idle CPU, languages, single-instance, save/save-as, benchmark) plus
 **121 unit tests**. Matrix: [docs/parity.md](docs/parity.md); benchmarks:

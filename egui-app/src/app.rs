@@ -35,6 +35,33 @@ pub struct LumenApp {
 }
 
 impl LumenApp {
+    fn log_event(&self, msg: &str) {
+        if std::env::var_os("LUMEN_LOG").is_none() {
+            return;
+        }
+        use std::io::Write;
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open("/tmp/lumen-egui.log")
+        {
+            let _ = writeln!(
+                f,
+                "{:?} phase={} doc={:?} browser={} dialog={} compare={} err={:?} :: {}",
+                std::time::SystemTime::now(),
+                match self.state.phase {
+                    Phase::Preview => "preview",
+                    Phase::Edit => "edit",
+                },
+                self.state.doc.as_ref().map(|d| d.name.clone()),
+                self.browser.open,
+                self.dialog.open,
+                self.state.compare,
+                self.state.error,
+                msg
+            );
+        }
+    }
     pub fn new(initial: Option<PathBuf>, incoming: Option<Receiver<PathBuf>>) -> Self {
         let mut app = Self {
             state: AppState::new(crate::i18n::Locale::detect()),
@@ -551,7 +578,9 @@ impl eframe::App for LumenApp {
         ui::topbar::show(ctx, &mut self.state);
         ui::rail::show(ctx, &mut self.state);
         ui::inspector::show(ctx, &mut self.state);
-        ui::dock::show(ctx, &mut self.state);
+        if !(self.browser.open || self.dialog.open) {
+            ui::dock::show(ctx, &mut self.state);
+        }
         ui::status::show(ctx, &mut self.state);
         ui::info::show(ctx, &mut self.state);
         ui::shortcuts::show(ctx, &mut self.state);
@@ -570,6 +599,7 @@ impl eframe::App for LumenApp {
         }
         if self.browser.open {
             let locale = self.state.locale;
+            self.log_event("browser_open");
             if let Some(path) = self.browser.show(ctx, locale) {
                 self.open(&path, Some(ctx));
             }
@@ -588,6 +618,7 @@ impl eframe::App for LumenApp {
         } else {
             self.dialog_snap = None;
         }
+        self.log_event("frame");
         if self.state.phase == Phase::Edit && self.state.doc.is_some() {
             self.refresh_estimate(Some(ctx));
         }

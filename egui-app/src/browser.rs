@@ -238,6 +238,10 @@ impl Browser {
 
     pub fn close(&mut self) {
         self.open = false;
+        self.selected = None;
+        self.error = None;
+        self.scroll_to_selected = false;
+        self.focus_path = false;
     }
 
     /// Draws the modal. Returns the chosen image path when the user confirms
@@ -291,7 +295,10 @@ impl Browser {
             .collapsible(false)
             .resizable(false)
             .movable(false)
-            .order(Order::Foreground)
+            // Tooltip order = above the Foreground scrim, no matter which layer
+            // got created first (this used to leave the dialog dimmed and
+            // unclickable behind the scrim after some open/close cycles).
+            .order(Order::Tooltip)
             .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
             .fixed_size(Vec2::new(card_w, card_h))
             .frame(

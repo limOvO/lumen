@@ -91,6 +91,8 @@ impl SaveDialog {
 
     pub fn close(&mut self) {
         self.open = false;
+        self.error = None;
+        self.overwrite_ok = false;
     }
 
     fn apply_suggested(&mut self, suggested: &Path) {
@@ -187,7 +189,7 @@ impl SaveDialog {
             .collapsible(false)
             .resizable(false)
             .movable(false)
-            .order(Order::Foreground)
+            .order(Order::Tooltip) // above the Foreground scrim, always
             .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
             .fixed_size(Vec2::new(card_w, card_h))
             .frame(
