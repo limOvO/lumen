@@ -82,7 +82,67 @@ pub enum Icon {
     Copy,
 }
 
+fn svg_name(icon: Icon) -> Option<&'static str> {
+    Some(match icon {
+        Icon::Brand => "tb-brand",
+        Icon::Move => "move",
+        Icon::Brush => "brush",
+        Icon::Rect => "rect",
+        Icon::Ellipse => "ellipse",
+        Icon::Arrow => "arrow",
+        Icon::Line => "line",
+        Icon::Text => "text",
+        Icon::Crop => "crop",
+        Icon::Eye => "btn-preview",
+        Icon::Pencil => "preview-edit",
+        Icon::Info => "preview-info",
+        Icon::Plus => "zoom-in",
+        Icon::Minus => "zoom-out",
+        Icon::Fit => "zoom-fit",
+        Icon::Folder => "btn-open",
+        Icon::Save => "btn-save",
+        Icon::SaveAs => "btn-saveas",
+        Icon::Undo => "btn-undo",
+        Icon::Redo => "btn-redo",
+        Icon::Panel => "btn-insp-collapse",
+        Icon::Help => "btn-shortcuts",
+        Icon::Close => "browser-title",
+        Icon::Lock => "adj-lock",
+        Icon::Prev => "preview-nav-prev",
+        Icon::Next => "preview-nav-next",
+        Icon::Dashed => "style-dashed",
+        Icon::Copy => "info-copy-path",
+    })
+}
+
+/// Draw one of the web build's inline SVGs (24x24, 1.8 stroke, round caps).
+fn paint_svg_icon(painter: &Painter, rect: Rect, icon: &super::svg_icons::ToolIcon, color: Color32) {
+    let d = rect.width().min(rect.height()).max(1.0);
+    let scale = d / 24.0;
+    let stroke = Stroke::new((1.8 * scale).max(0.8), color);
+    let origin = rect.center() - Vec2::splat(d / 2.0);
+    for path in icon.paths {
+        if path.len() < 2 {
+            continue;
+        }
+        let pts: Vec<Pos2> = path
+            .iter()
+            .map(|(x, y)| origin + Vec2::new(x * scale, y * scale))
+            .collect();
+        painter.add(Shape::line(pts.clone(), stroke));
+        for p in [pts[0], *pts.last().unwrap()] {
+            painter.circle_filled(p, stroke.width * 0.5, color);
+        }
+    }
+}
+
 pub fn paint_icon(painter: &Painter, rect: Rect, icon: Icon, color: Color32, px: f32) {
+    if let Some(name) = svg_name(icon) {
+        if let Some(g) = super::svg_icons::ui(name).or_else(|| super::svg_icons::rail(name)) {
+            paint_svg_icon(painter, rect, g, color, );
+            return;
+        }
+    }
     let d = rect.width().min(rect.height()).max(1.0);
     let s = d / 24.0;
     let origin = rect.center() - Vec2::splat(d / 2.0);

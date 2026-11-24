@@ -29,6 +29,29 @@ fn is_drawing_tool(tool: Tool) -> bool {
     )
 }
 
+/// Anchor offset for the dock relative to the screen: centred on the canvas
+/// area, `bottom: 56px` above the canvas bottom, plus the web's idle
+/// `translateY(58%)` slide when asleep. Pure so it can be unit-tested.
+pub fn dock_offset(canvas: Rect, screen: Rect, wake: f32) -> Vec2 {
+    let idle_slide = (1.0 - wake) * 0.58 * 54.0;
+    Vec2::new(
+        canvas.center().x - screen.center().x,
+        (canvas.bottom() - screen.bottom() - 56.0) + idle_slide,
+    )
+}
+
+/// Debug hook used by scripts/parity/verify.py (LUMEN_DEBUG_DOCK=1).
+fn debug_log(rect: Rect, canvas: Rect, screen: Rect) {
+    if std::env::var_os("LUMEN_DEBUG_DOCK").is_some() {
+        eprintln!(
+            "[dock] rect {:.1} {:.1} {:.1} {:.1} canvas {:.1} {:.1} {:.1} {:.1} screen {:.1} {:.1}",
+            rect.left(), rect.top(), rect.width(), rect.height(),
+            canvas.left(), canvas.top(), canvas.width(), canvas.height(),
+            screen.width(), screen.height()
+        );
+    }
+}
+
 pub fn show(ctx: &egui::Context, state: &mut AppState) {
     // Fade + rise in when a drawing tool is picked (240 ms), fade + drop out
     // when leaving the tool or the editor (180 ms), web timings.
@@ -49,14 +72,23 @@ pub fn show(ctx: &egui::Context, state: &mut AppState) {
     let wake = motion::blend(ctx, Id::new("style-dock-wake"), was_hovered, 0.20);
     // Idle dimming stays, multiplied by the enter/exit progress.
     let opacity = enter * (0.45 + 0.55 * wake);
-    // Rise from 18px below while fading in; drop back down while fading out.
-    let offset_y =
-        -(theme::STATUS_H + 56.0) + motion::slide_offset(enter, 18.0);
-
-    let dock_w = 600.0_f32.min(screen.width() - 96.0);
+    // Position like the web: centred on the *canvas area* (rail + inspector
+    // taken into account) and 26px above the status bar. The dock previously
+    // centred on the window, which pushed it over the picture on the right.
+    let collapsed = local::get(ctx, |l| l.inspector_collapsed);
+    let insp_w = if collapsed { 0.0 } else { local::get(ctx, |l| l.inspector_width) };
+    let canvas = Rect::from_min_max(
+        egui::Pos2::new(screen.left() + theme::RAIL_W, screen.top() + theme::TOPBAR_H),
+        egui::Pos2::new(screen.right() - insp_w, screen.bottom() - theme::STATUS_H),
+    );
+    let dock_w = 600.0_f32.min((canvas.width() - 96.0).max(280.0));
+    let offset = dock_offset(canvas, screen, wake)
+        + Vec2::new(0.0, motion::slide_offset(enter, 18.0));
+    let offset_x = offset.x;
+    let offset_y = offset.y;
     let resp = egui::Area::new(Id::new("style-dock"))
         .order(Order::Foreground)
-        .anchor(Align2::CENTER_BOTTOM, Vec2::new(0.0, offset_y))
+        .anchor(Align2::CENTER_BOTTOM, Vec2::new(offset_x, offset_y))
         .show(ctx, |ui| {
             ui.set_min_width(dock_w);
             ui.set_max_width(dock_w);
@@ -68,7 +100,7 @@ pub fn show(ctx: &egui::Context, state: &mut AppState) {
                 .inner_margin(egui::Margin::symmetric(14, 10))
                 .show(ui, |ui| {
                     ui.set_width(dock_w - 28.0);
-                    ui.horizontal(|ui| {
+                    ui.horizontal_wrapped(|ui| {
                         ui.spacing_mut().item_spacing = Vec2::new(14.0, 8.0);
                         // Colour swatches + custom colour + dashed toggle.
                         ui.horizontal(|ui| {
@@ -153,6 +185,7 @@ pub fn show(ctx: &egui::Context, state: &mut AppState) {
                 });
         });
     local::with(ctx, |l| l.style_dock = resp.response.rect);
+    debug_log(resp.response.rect, canvas, screen);
 }
 
 fn slider_stack(
@@ -164,7 +197,7 @@ fn slider_stack(
     max: f32,
 ) {
     ui.allocate_ui_with_layout(
-        Vec2::new(96.0, 38.0),
+        Vec2::new(96.0, 34.0),
         Layout::top_down(Align::Min),
         |ui| {
             ui.spacing_mut().item_spacing = Vec2::new(0.0, 4.0);
@@ -172,4 +205,27 @@ fn slider_stack(
             widgets::slider(ui, value, min, max, 96.0, true);
         },
     );
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dock_is_centred_on_the_canvas_and_56px_above_it() {
+        let screen = Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(1280.0, 820.0));
+        let canvas = Rect::from_min_max(
+            egui::Pos2::new(52.0, 46.0),
+            egui::Pos2::new(980.0, 796.0),
+        );
+        let off = dock_offset(canvas, screen, 1.0);
+        // the area is anchored CENTER_BOTTOM: screen centre + offset = canvas centre
+        assert!((screen.center().x + off.x - canvas.center().x).abs() < 0.5);
+        // bottom edge sits 56px above the canvas bottom (866 - 56 = 740)
+        assert!((screen.bottom() + off.y - (canvas.bottom() - 56.0)).abs() < 0.5);
+        // idle slides down by 58% of the dock height
+        let idle = dock_offset(canvas, screen, 0.0);
+        assert!((idle.y - off.y - 31.32).abs() < 0.01);
+    }
 }

@@ -769,6 +769,53 @@ def main():
     finally:
         stop(p)
 
+    # ---- style dock geometry (debug rect from the app itself) ----
+    cleanup()
+    dock_log = OUT / "dock-debug.log"
+    dock_log.write_text("")
+    env = dict(ENV)
+    env["LUMEN_DEBUG_DOCK"] = "1"
+    dp = subprocess.Popen([str(app), str(fx)], env=env,
+                          stdout=subprocess.DEVNULL, stderr=open(dock_log, "w"))
+    try:
+        if not wait_window("Lumen", 25.0):
+            raise RuntimeError("dock-test window did not appear")
+        focus()
+        time.sleep(2.5)
+        key("e", 0.6)
+        key("b", 0.6)
+        xdo("mousemove", 516, 740)   # awake
+        time.sleep(0.8)
+        awake_lines = [l for l in dock_log.read_text().splitlines() if l.startswith("[dock] rect")]
+        xdo("mousemove", 900, 200)   # idle
+        time.sleep(1.0)
+        idle_lines = [l for l in dock_log.read_text().splitlines() if l.startswith("[dock] rect")]
+
+        def parse(line):
+            v = [float(x) for x in line.split() if x.replace(".", "", 1).lstrip("-").isdigit()]
+            # rect x y w h canvas x y w h screen w h
+            return {"rect": v[0:4], "canvas": v[4:8], "screen": v[8:10]}
+
+        ok = False
+        detail = "no [dock] lines"
+        if awake_lines and idle_lines:
+            a = parse(awake_lines[-1]); i = parse(idle_lines[-1])
+            cx = a["rect"][0] + a["rect"][2] / 2
+            bottom = a["rect"][1] + a["rect"][3]
+            canvas_cx = a["canvas"][0] + a["canvas"][2] / 2
+            canvas_bottom = a["canvas"][1] + a["canvas"][3]
+            idle_bottom = i["rect"][1] + i["rect"][3]
+            detail = (f"awake cx {cx:.1f}/{canvas_cx:.1f} bottom {bottom:.1f}/{canvas_bottom - 56:.1f} "
+                      f"idle bottom {idle_bottom:.1f}")
+            ok = (abs(cx - canvas_cx) <= 2
+                  and abs(bottom - (canvas_bottom - 56.0)) <= 2
+                  and abs(idle_bottom - bottom - 0.58 * 54.0) <= 2)
+        check("G17", "style dock is canvas-centred, 56px above the canvas, and slides down when idle",
+              ok, detail)
+    finally:
+        stop(dp)
+        cleanup()
+
     # ---- performance ----
     if quick:
         check("P2", "benchmark (skipped in --quick)", True, "quick mode")

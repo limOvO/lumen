@@ -32,7 +32,7 @@ const TOOLS: [ToolEntry; 8] = [
 
 /// Draw one of the web build's 24x24 SVG icons at `rect` (round caps, 1.8 stroke).
 fn paint_tool_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Color32) {
-    let Some(icon) = super::tool_icons::rail(name) else { return };
+    let Some(icon) = super::svg_icons::rail(name) else { return };
     let scale = rect.width() / 24.0;
     let stroke = Stroke::new((1.8 * scale).max(1.0), color);
     for path in icon.paths {

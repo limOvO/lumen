@@ -11,7 +11,7 @@ from svg.path import parse_path
 
 ROOT = Path(__file__).resolve().parents[1]
 HTML = (ROOT / "src/index.html").read_text(encoding="utf-8")
-OUT = ROOT / "egui-app/src/ui/tool_icons.rs"
+OUT = ROOT / "egui-app/src/ui/svg_icons.rs"
 
 STEP = 0.35  # sampling step in the 24x24 viewBox
 
@@ -77,6 +77,43 @@ def ellipse(cx, cy, rx, ry):
     return [pts]
 
 
+def all_ui_icons():
+    """Every inline SVG in index.html, named by its parent element id."""
+    out = []
+    seen = set()
+    for m in re.finditer(r"<svg\b[^>]*>.*?</svg>", HTML, re.S):
+        start = m.start()
+        before = HTML[max(0, start - 500):start]
+        ids = re.findall(r'id="([^"]+)"', before)
+        if not ids:
+            continue
+        name = ids[-1]
+        if name in seen:
+            continue
+        svg = m.group(0)
+        attrs = dict(re.findall(r'(\w[\w-]*)="([^"]*)"', svg[:svg.index(">")]))
+        paths = []
+        for dm in re.finditer(r'<path[^>]*\sd="([^"]+)"', svg):
+            paths.extend(flatten_d(dm.group(1)))
+        for rm in re.finditer(r'<rect([^>]*)/?>', svg):
+            ra = dict(re.findall(r'(\w[\w-]*)="([^"]*)"', rm.group(1)))
+            paths.extend(rounded_rect(float(ra.get("x", 0)), float(ra.get("y", 0)),
+                                      float(ra.get("width", 0)), float(ra.get("height", 0)),
+                                      float(ra.get("rx", 0))))
+        for em in re.finditer(r'<ellipse([^>]*)/?>', svg):
+            ea = dict(re.findall(r'(\w[\w-]*)="([^"]*)"', em.group(1)))
+            paths.extend(ellipse(float(ea.get("cx", 12)), float(ea.get("cy", 12)),
+                                 float(ea.get("rx", 8)), float(ea.get("ry", 8))))
+        for cm in re.finditer(r'<circle([^>]*)/?>', svg):
+            ca = dict(re.findall(r'(\w[\w-]*)="([^"]*)"', cm.group(1)))
+            paths.extend(ellipse(float(ca.get("cx", 12)), float(ca.get("cy", 12)),
+                                 float(ca.get("r", 8)), float(ca.get("r", 8))))
+        if paths:
+            seen.add(name)
+            out.append((name, float(attrs.get("stroke-width", 1.8)), paths))
+    return out
+
+
 def icons():
     out = []
     for m in re.finditer(
@@ -113,6 +150,11 @@ def icons():
     return out
 
 
+def num(v):
+    t = f"{v:g}"
+    return t if "." in t else t + ".0"
+
+
 def main():
     data = icons()
     lines = [
@@ -129,10 +171,16 @@ def main():
     for name, paths in data:
         lines.append(f'    ToolIcon {{ name: "{name}", paths: &[')
         for pts in paths:
-            def num(v):
-                t = f"{v:g}"
-                return t if "." in t else t + ".0"
-
+            body = ", ".join(f"({num(x)}, {num(y)})" for x, y in pts)
+            lines.append(f"        &[{body}],")
+        lines.append("    ]},")
+    lines.append("];")
+    lines.append("")
+    ui = all_ui_icons()
+    lines.append("pub static UI: &[ToolIcon] = &[")
+    for name, stroke, paths in ui:
+        lines.append(f'    ToolIcon {{ name: "{name}", paths: &[')
+        for pts in paths:
             body = ", ".join(f"({num(x)}, {num(y)})" for x, y in pts)
             lines.append(f"        &[{body}],")
         lines.append("    ]},")
@@ -141,8 +189,12 @@ def main():
     lines.append("pub fn rail(name: &str) -> Option<&'static ToolIcon> {")
     lines.append("    RAIL.iter().find(|i| i.name == name)")
     lines.append("}")
+    lines.append("")
+    lines.append("pub fn ui(name: &str) -> Option<&'static ToolIcon> {")
+    lines.append("    UI.iter().find(|i| i.name == name)")
+    lines.append("}")
     OUT.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    print(f"wrote {OUT.relative_to(ROOT)} with {len(data)} icons")
+    print(f"wrote {OUT.relative_to(ROOT)} with {len(data)} rail + {len(ui)} ui icons")
 
 
 if __name__ == "__main__":
