@@ -118,10 +118,29 @@ fn apply(ctx: &egui::Context, locale: Locale, system: Option<egui::FontData>) {
 }
 
 pub fn install(ctx: &egui::Context, locale: Locale) {
-    // System CJK face for arbitrary text, embedded subsets for the UI.
-    let system = system_face(locale);
-    FULL_LOADED.store(system.is_some(), Ordering::Relaxed);
-    apply(ctx, locale, system);
+    // UI subsets only: the 19.5 MB system CJK face is loaded lazily the first
+    // time a character outside the UI set can appear (file browser, text tool,
+    // unusual document name). That keeps startup and idle memory low.
+    apply(ctx, locale, None);
+    FULL_LOADED.store(false, Ordering::Relaxed);
+}
+
+/// Load the system CJK face on demand (idempotent, one hitch of ~40 ms).
+pub fn ensure_system(ctx: &egui::Context, locale: Locale) -> bool {
+    if FULL_LOADED.load(Ordering::Relaxed) {
+        return true;
+    }
+    let Some(system) = system_face(locale) else { return false };
+    apply(ctx, locale, Some(system));
+    FULL_LOADED.store(true, Ordering::Relaxed);
+    true
+}
+
+/// Does `text` contain CJK characters that the embedded UI subset cannot draw?
+pub fn needs_system(text: &str) -> bool {
+    let subset: &str = include_str!("../../scripts/i18n/subset-chars.txt");
+    text.chars()
+        .any(|c| c >= '\u{3400}' && !subset.contains(c))
 }
 
 /// Kept for callers that used to trigger the lazy load; now a no-op because the

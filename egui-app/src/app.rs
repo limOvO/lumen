@@ -15,6 +15,21 @@ use crate::state::OutputFormat;
 use crate::{export, save};
 use crate::{theme, ui};
 
+/// Single-parameter preview↔edit glide. Scale, position and the (animating)
+/// canvas rect all interpolate with one eased parameter, so every image corner
+/// travels in a straight line instead of a slide-then-shrink curve.
+#[derive(Clone, Copy)]
+struct PhaseAnim {
+    t0: f64,
+    from_rect: egui::Rect,
+    to_rect: egui::Rect,
+    from_scale: f32,
+    from_off: Vec2,
+    to_scale: f32,
+}
+
+const PHASE_GLIDE: f64 = 0.30;
+
 pub struct LumenApp {
     pub state: AppState,
     estimate_key: String,
@@ -26,7 +41,7 @@ pub struct LumenApp {
     incoming: Option<Receiver<PathBuf>>,
     last_phase: Phase,
     phase_pending: bool,
-    fit_smooth_until: f64, // keep re-fitting smoothly while panels slide
+    phase_anim: Option<PhaseAnim>,
     switch: Option<(f32, f64)>,                   // direction, t0
     switch_dir: f32,
     perf: bool,
@@ -82,7 +97,7 @@ impl LumenApp {
             incoming,
             last_phase: Phase::Preview,
             phase_pending: false,
-            fit_smooth_until: 0.0,
+            phase_anim: None,
             switch: None,
             switch_dir: 0.0,
             perf: false,
@@ -452,10 +467,14 @@ impl LumenApp {
                 UiAction::Save => self.save_overwrite(),
                 UiAction::Estimate => self.refresh_estimate(None),
                 UiAction::Open => {
+                    crate::fonts::ensure_system(ctx, self.state.locale);
                     let start = self.state.doc.as_ref().map(|d| d.path.clone());
                     self.browser.open_at(start);
                 }
-                UiAction::SaveAs | UiAction::Export => self.open_save_dialog(),
+                UiAction::SaveAs | UiAction::Export => {
+                    crate::fonts::ensure_system(ctx, self.state.locale);
+                    self.open_save_dialog()
+                }
             }
         }
     }
@@ -481,19 +500,66 @@ impl LumenApp {
                 let fit_scale = (stage.width() / w).min(stage.height() / h).min(1.0);
                 if self.phase_pending {
                     self.phase_pending = false;
-                    // The rail/inspector widths animate for 240 ms; re-fit every
-                    // frame during that window so the picture glides smoothly
-                    // instead of snapping at the end.
-                    self.fit_smooth_until = now() + 0.34;
+                    // Predict the final canvas rect for the destination phase; the
+                    // panels animate their widths, so we animate the rect too and
+                    // drive image scale/offset with the same parameter.
+                    let screen = ctx.screen_rect();
+                    let (collapsed, insp_w) = crate::ui::local::get(ctx, |l| {
+                        (l.inspector_collapsed, l.inspector_width)
+                    });
+                    let to_rect = match self.state.phase {
+                        Phase::Preview => screen,
+                        Phase::Edit => egui::Rect::from_min_max(
+                            egui::pos2(screen.left() + theme::RAIL_W, screen.top() + theme::TOPBAR_H),
+                            egui::pos2(
+                                screen.right() - if collapsed { 0.0 } else { insp_w },
+                                screen.bottom() - theme::STATUS_H,
+                            ),
+                        ),
+                    };
+                    let to_stage = to_rect.shrink2(Vec2::new(32.0, 32.0));
+                    let to_scale = (to_stage.width() / w).min(to_stage.height() / h).min(1.0);
+                    // Keep the glide in sync with slowed-motion debugging and with
+                    // the panel animation (which honours LUMEN_MOTION_SLOW too).
+                    let slow = std::env::var("LUMEN_MOTION_SLOW")
+                        .ok()
+                        .and_then(|v| v.parse::<f64>().ok())
+                        .map(|v| v.clamp(1.0, 10.0))
+                        .unwrap_or(1.0);
+                    self.phase_anim = Some(PhaseAnim {
+                        t0: now() - (PHASE_GLIDE * slow - PHASE_GLIDE),
+                        from_rect: rect,
+                        to_rect,
+                        from_scale: self.state.view.scale,
+                        from_off: self.state.view.offset,
+                        to_scale,
+                    });
                 }
-                if now() < self.fit_smooth_until {
-                    let dt = ctx.input(|i| i.stable_dt).clamp(0.001, 0.05);
-                    let k = 1.0 - (-dt * 22.0).exp();
-                    self.state.view.scale += (fit_scale - self.state.view.scale) * k;
-                    self.state.view.offset += (Vec2::ZERO - self.state.view.offset) * k;
-                    self.state.view.fit = false;
-                    ctx.request_repaint();
-                } else if self.state.view.fit {
+                if let Some(anim) = self.phase_anim {
+                    let p = (((now() - anim.t0) / PHASE_GLIDE) as f32).clamp(0.0, 1.0);
+                    let e = 1.0 - (1.0 - p).powi(3);
+                    let anim_rect = lerp_rect(anim.from_rect, anim.to_rect, e);
+                    let scale = anim.from_scale + (anim.to_scale - anim.from_scale) * e;
+                    let offset = anim.from_off * (1.0 - e);
+                    let tex = doc.texture_for(ctx, scale).0;
+                    let center = anim_rect.center() + offset;
+                    painter.image(
+                        tex.id(),
+                        egui::Rect::from_center_size(center, Vec2::new(w * scale, h * scale)),
+                        egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)),
+                        egui::Color32::WHITE,
+                    );
+                    if p < 1.0 {
+                        ctx.request_repaint();
+                    } else {
+                        self.phase_anim = None;
+                        self.state.view.fit = true;
+                        self.state.view.scale = anim.to_scale;
+                        self.state.view.offset = Vec2::ZERO;
+                    }
+                    return;
+                }
+                if self.state.view.fit {
                     // Web parity: the fit view keeps 32 px of breathing room on
                     // every side (64 px total per axis) before fitting.
                     self.state.view.scale = fit_scale;
@@ -635,6 +701,16 @@ impl eframe::App for LumenApp {
             self.dialog_snap = None;
         }
         self.log_event("frame");
+        if self.state.tool == crate::state::Tool::Text
+            || self
+                .state
+                .doc
+                .as_ref()
+                .map(|d| crate::fonts::needs_system(&d.name))
+                .unwrap_or(false)
+        {
+            crate::fonts::ensure_system(ctx, self.state.locale);
+        }
         if self.state.phase == Phase::Edit && self.state.doc.is_some() {
             self.refresh_estimate(Some(ctx));
         }
@@ -677,6 +753,13 @@ fn now() -> f64 {
         .unwrap_or(0.0)
 }
 
+fn lerp_rect(a: egui::Rect, b: egui::Rect, t: f32) -> egui::Rect {
+    egui::Rect::from_min_max(
+        a.min + (b.min - a.min) * t,
+        a.max + (b.max - a.max) * t,
+    )
+}
+
 fn max_pixels(ctx: Option<&egui::Context>) -> u64 {
     // 2x the viewport keeps fit-view sharp without wasting RAM on huge decodes;
     // zooming past `decoded_scale` triggers the async full-res upgrade anyway.
@@ -686,5 +769,5 @@ fn max_pixels(ctx: Option<&egui::Context>) -> u64 {
             (r.width().max(640.0), r.height().max(480.0))
         })
         .unwrap_or((1280.0, 820.0));
-    ((w * h * 1.75) as u64).max(2_500_000)
+    ((w * h * 1.5) as u64).max(2_000_000)
 }
