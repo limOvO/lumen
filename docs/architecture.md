@@ -33,7 +33,7 @@ two-point handles, 80-step undo, and a full-resolution export pipeline with targ
 compression. The rewrite now also has: lossy WebP with target-KB bisection, weight-600 annotation text
 on screen and in exports, folder-browser thumbnails matching the CSS row geometry,
 single-instance forwarding (second launch updates the running window), and packaging
-(scripts/build-egui.sh / install-egui.sh + desktop entry). Parity gate:
+(scripts/build-egui.sh / install-egui.sh + desktop entry). Resource comparison: [bench-resources.md](bench-resources.md). Parity gate:
 `scripts/parity/check.sh` (12 paired captures + geometry) and 118 unit tests.
 
 ## What the spikes show

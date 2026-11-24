@@ -131,7 +131,7 @@ Verified by `python3 scripts/parity/verify.py`: **62 automated checks** (geometr
 delta 0 against a live WebView capture, chrome regions, all tools, undo/redo, compare, crop,
 zoom/fit, animations, idle CPU, languages, single-instance, save/save-as, benchmark) plus
 **121 unit tests**. Matrix: [docs/parity.md](docs/parity.md); benchmarks:
-[docs/architecture.md](docs/architecture.md).
+[docs/architecture.md](docs/architecture.md) · [resource comparison](docs/bench-resources.md).
 
 ## License
 
