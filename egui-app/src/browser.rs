@@ -257,10 +257,13 @@ impl Browser {
         let err_h = if self.error.is_some() { ERR_H } else { 0.0 };
         let list_h = (height - HEAD_H - NAV_H - FOOT_H - err_h).max(120.0);
         let total_h = HEAD_H + NAV_H + err_h + list_h + FOOT_H;
+        let avail = ctx.screen_rect().shrink(20.0);
+        let card_w = CARD_W.min(avail.width());
+        let card_h = total_h.min(avail.height());
 
         // Scrim: dims the app and swallows clicks outside the card.
         let scrim = egui::Area::new(Id::new("lumen-browser-scrim"))
-            .order(Order::Middle)
+            .order(Order::Foreground)
             .fixed_pos(screen.left_top())
             .show(ctx, |ui| {
                 let (rect, resp) = ui.allocate_exact_size(screen.size(), Sense::click());
@@ -290,7 +293,7 @@ impl Browser {
             .movable(false)
             .order(Order::Foreground)
             .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
-            .fixed_size(Vec2::new(CARD_W, total_h))
+            .fixed_size(Vec2::new(card_w, card_h))
             .frame(
                 egui::Frame::new()
                     .fill(theme::PANEL)
@@ -300,12 +303,12 @@ impl Browser {
             )
             .show(ctx, |ui| {
                 ui.spacing_mut().item_spacing = Vec2::ZERO;
-                ui.set_width(CARD_W);
-                ui.set_height(total_h);
+                ui.set_width(card_w);
+                ui.set_height(card_h);
 
                 // --- head ---------------------------------------------------
                 let (head, _) =
-                    ui.allocate_exact_size(Vec2::new(CARD_W, HEAD_H), Sense::hover());
+                    ui.allocate_exact_size(Vec2::new(card_w, HEAD_H), Sense::hover());
                 {
                     let painter = ui.painter();
                     painter.text(

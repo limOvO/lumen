@@ -22,6 +22,7 @@ pub mod preview;
 pub mod rail;
 pub mod shortcuts;
 pub mod status;
+mod tool_icons;
 pub mod topbar;
 pub mod widgets;
 pub mod zoom;

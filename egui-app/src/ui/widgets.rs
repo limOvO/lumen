@@ -29,6 +29,10 @@ pub const CHIP_BG: Color32 = Color32::from_rgb(21, 21, 23);
 /// Tool semantics red (--tool).
 pub const TOOL: Color32 = Color32::from_rgb(255, 92, 92);
 
+pub fn brand_soft() -> Color32 {
+    Color32::from_rgba_unmultiplied(249, 250, 251, 26) // web --brand-soft (10%)
+}
+
 pub fn white(a: u8) -> Color32 {
     Color32::from_rgba_unmultiplied(255, 255, 255, a)
 }

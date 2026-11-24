@@ -13,9 +13,9 @@ pub const WARN: Color32 = Color32::from_rgb(245, 158, 11);
 pub const ERR: Color32 = Color32::from_rgb(239, 68, 68);
 
 pub const TOPBAR_H: f32 = 46.0;
-pub const RAIL_W: f32 = 56.0;
+pub const RAIL_W: f32 = 52.0; // --rail-w
 pub const PANEL_W: f32 = 300.0;
-pub const STATUS_H: f32 = 26.0;
+pub const STATUS_H: f32 = 24.0; // --statusbar-h
 pub const DOCK_H: f32 = 56.0;
 
 pub const MOTION: f32 = 0.22;
@@ -31,9 +31,9 @@ mod tests {
     #[test]
     fn layout_matches_web_css() {
         assert_eq!(TOPBAR_H, 46.0);
-        assert_eq!(RAIL_W, 56.0);
+        assert_eq!(RAIL_W, 52.0);
         assert_eq!(PANEL_W, 300.0);
-        assert_eq!(STATUS_H, 26.0);
+        assert_eq!(STATUS_H, 24.0);
     }
 
     #[test]

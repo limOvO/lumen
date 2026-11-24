@@ -194,6 +194,12 @@ def burst(name, keyname=None, frames=5, gap=0.07):
     return paths
 
 
+def cleanup():
+    for name in ("lumen-egui-app", "lumen-egui", "lumen"):
+        run(["pkill", "-x", name])
+    time.sleep(0.8)
+
+
 def tick_cpu(pid, seconds=5.0):
     def ticks():
         with open(f"/proc/{pid}/stat") as f:
@@ -481,14 +487,104 @@ def main():
                    and max(abs(a - b) for a, b in zip(grip_outer_web, grip_outer_egui)) <= 6)
         check("G10", "inspector grip pill matches the web build", grip_ok,
               f"edge {grip_web} vs {grip_egui}, outer {grip_outer_web} vs {grip_outer_egui}")
+
+        # rail tool icons: same SVG geometry, same 30px buttons / 4px gaps
+        rail_web = web_im.crop((0, 56, 52, 430)).convert("L")
+        rail_egui = egui_im.crop((0, 56, 52, 430)).convert("L")
+        rail_delta = statistics.mean(ImageChops.difference(rail_web, rail_egui).getdata())
+
+        def ink_mask(img, box, thresh=110):
+            crop = img.crop(box).convert("L")
+            return [1 if v > thresh else 0 for v in crop.getdata()]
+
+        def icon_centres(img):
+            px = img.load()
+            rows = []
+            for y in range(56, 430):
+                ink = sum(1 for x in range(14, 44) if sum(px[x, y][:3]) > 240)
+                rows.append((y, ink))
+            bands, cur = [], None
+            for y, ink in rows:
+                if ink > 0 and cur is None:
+                    cur = y
+                elif ink == 0 and cur is not None:
+                    bands.append((cur, y)); cur = None
+            return bands
+
+        bands_egui = icon_centres(egui_im)
+        bands_web = icon_centres(web_im)
+        # Shape parity: crop each icon to its own ink bbox, normalise to 48x48 and
+        # compare masks. This is layout/pitch independent (that is covered by the
+        # generated SVG geometry and the CSS metrics).
+        def masks(img):
+            px = img.load()
+            out = []
+            for y in range(46, 430):
+                for x in range(0, 52):
+                    pass
+            rows = []
+            for y in range(46, 430):
+                ink = [x for x in range(0, 52) if sum(px[x, y]) > 240]
+                rows.append((y, ink))
+            cur = None
+            for y, ink in rows:
+                if ink and cur is None:
+                    cur = y
+                elif not ink and cur is not None:
+                    out.append((cur, y)); cur = None
+            return out
+
+        def norm_mask(img, box):
+            from PIL import Image as PILImage
+            crop = img.crop(box).convert("L")
+            bw = crop.point(lambda v: 255 if v > 110 else 0)
+            bbox = bw.getbbox()
+            if not bbox:
+                return None
+            bw = bw.crop(bbox).resize((48, 48), PILImage.BILINEAR)
+            return [1 if v > 100 else 0 for v in bw.getdata()]
+
+        web_rows = masks(web_im)
+        egui_rows = masks(egui_im)
+        ious = []
+        for ((wy0, wy1), (ey0, ey1)) in zip(web_rows, egui_rows):
+            a = norm_mask(web_im, (0, wy0, 52, wy1))
+            b = norm_mask(egui_im, (0, ey0, 52, ey1))
+            if not a or not b:
+                ious.append(0.0); continue
+            inter = sum(1 for p, q in zip(a, b) if p and q)
+            union = sum(1 for p, q in zip(a, b) if p or q)
+            ious.append(round(inter / union, 2) if union else 0.0)
+        check("G13", "tool button icon shapes match the web SVGs (normalised ink IoU >= 0.45)",
+              len(ious) == 8 and min(ious) >= 0.45, f"IoU per icon {ious}")
+        check("G13b", "tool rail icon ink differs only by renderer AA (mean delta <= 8)",
+              rail_delta <= 8.0, f"delta {rail_delta:.2f}")
+
+        check("G14", "rail has 8 tool rows in both builds",
+              len(bands_egui) == len(bands_web) == 8,
+              f"egui {len(bands_egui)} vs web {len(bands_web)} bands")
     else:
         check("G9", "chrome palette matches the web build", False, "web capture failed")
 
     # ---- empty state ----
+    cleanup()
+    (OUT / "empty-err.log").write_text("")
     p = start(app)
     try:
+        if not wait_window("Lumen", 20.0):
+            # one retry after clearing leftovers; keep diagnostics for flaky runs
+            err = run(["bash", "-c", f"pgrep -a -x lumen-egui-app; pgrep -a -x Xvfb"])
+            check("B14-setup", "empty-state window appears (diagnostics logged)", False,
+                  f"pgrep: {err.stdout.strip()[:200]}")
+            stop(p)
+            cleanup()
+            p = start(app)
+            if not wait_window("Lumen", 20.0):
+                raise RuntimeError("empty-state window did not appear twice")
         focus()
-        time.sleep(3.0)
+        time.sleep(2.5)
+        wait_painted(OUT / "egui-16-empty-pre.png")
+        time.sleep(0.5)
         s_empty = shot("egui-16-empty")
         im = img_arr(s_empty)
         content = bbox_nonbg(im, (0, 0, 1280, 820), tol=6)
@@ -503,7 +599,7 @@ def main():
         check("B14", "empty state shows the drop card (web parity)", content is not None and nonbg > 800,
               f"nonbg {nonbg} in {card_region}")
         # empty-state chrome: rail + inspector present too
-        rail_px = im.getpixel((10, 300))
+        rail_px = im.getpixel((46, 300))
         check("B14b", "empty state renders the editor chrome", max(abs(c - t) for c, t in zip(rail_px, (28, 28, 30))) <= 5, str(rail_px))
     finally:
         stop(p)
@@ -581,6 +677,95 @@ def main():
         time.sleep(2.5)
         check("B19", "save-as dialog writes the chosen path", out_dialog.exists(),
               str(out_dialog))
+    finally:
+        stop(p)
+
+    # ---- modal layering + resize safety ----
+    p = start(app, work)
+    try:
+        focus()
+        time.sleep(3.0)
+        key("e", 0.5)
+        key("b", 0.4)
+        time.sleep(0.5)
+        pre = shot("egui-21-dock-before")
+        key("ctrl+shift+s", 0.7)
+        time.sleep(1.0)
+        modal = shot("egui-22-dock-under-modal")
+        def band_mean(path, box):
+            im = img_arr(path).crop(box).convert("L").resize((80, 20))
+            return statistics.mean(im.getdata())
+        dock_box = (240, 690, 1040, 790)
+        before_v = band_mean(pre, dock_box)
+        under_v = band_mean(modal, dock_box)
+        check("G11", "modal scrim dims the chrome underneath (dock no longer floats above)",
+              under_v < before_v * 0.85, f"dock mean {before_v:.1f} -> {under_v:.1f}")
+        key("Escape", 0.6)
+        time.sleep(0.4)
+
+        # resize to the minimum window size and open the save dialog again
+        wid = wait_window()
+        xdo("windowsize", wid, "880", "560")
+        time.sleep(1.0)
+        key("ctrl+shift+s", 0.7)
+        time.sleep(1.2)
+        small = shot("egui-23-saveas-880")
+        im_s = img_arr(small)
+        px = im_s.load()
+        row = 300
+        xs = [x for x in range(0, 880) if max(abs(a - b) for a, b in zip(px[x, row], (35, 35, 36))) <= 4]
+        left = min(xs) if xs else -1
+        right = max(xs) if xs else -1
+        check("G12", "save dialog fits inside the 880x560 minimum window",
+              12 <= left and right <= 868, f"dialog span {left}..{right} of 880")
+        key("Escape", 0.5)
+    finally:
+        stop(p)
+
+    # ---- resize safety: fit padding and panel metrics at several sizes ----
+    p = start(app, fx)
+    try:
+        if not wait_window("Lumen", 25.0):
+            raise RuntimeError("resize-test window did not appear")
+        focus()
+        time.sleep(2.5)
+        wid = wait_window()
+        # preview: the picture keeps the web's 32px stage padding on the constrained axis
+        for w, h in ((880, 560), (1440, 900), (1280, 820)):
+            xdo("windowsize", wid, str(w - 2), str(h - 2))
+            time.sleep(0.4)
+            xdo("windowsize", wid, str(w), str(h))
+            time.sleep(1.4)
+            xdo("mousemove", w // 2, h // 2)
+            time.sleep(0.6)
+            shot(f"egui-24-resize-{w}x{h}-a")
+            path = shot(f"egui-24-resize-{w}x{h}")
+            im_r = img_arr(path)
+            bb = bbox_sat(im_r, (0, 0, w, h))
+            ok = False
+            detail = str(bb)
+            if bb:
+                pads = [bb[0], w - 1 - bb[2], bb[1], h - 1 - bb[3]]
+                detail = f"bbox {bb} pads {pads}"
+                constrained = min(pads)
+                ok = 28 <= constrained <= 40 and min(pads) >= 28
+            check(f"G15-{w}x{h}", f"picture fits with the web stage padding at {w}x{h}",
+                  ok, detail)
+        # editor: panels keep the web metrics at every size
+        key("e", 0.6)
+        time.sleep(1.2)
+        for w, h in ((880, 560), (1280, 820)):
+            xdo("windowsize", wid, str(w), str(h))
+            time.sleep(1.6)
+            xdo("mousemove", w // 2, h // 2)
+            time.sleep(0.5)
+            path = shot(f"egui-24-edit-{w}x{h}")
+            im_e = img_arr(path)
+            rail_edge = im_e.getpixel((45, h // 2))
+            insp_edge = im_e.getpixel((w - 250, h // 2))
+            check(f"G16-{w}x{h}", f"editor panels keep web metrics at {w}x{h}",
+                  rail_edge == (28, 28, 30) and insp_edge != (21, 21, 23),
+                  f"rail {rail_edge} inspector {insp_edge}")
     finally:
         stop(p)
 

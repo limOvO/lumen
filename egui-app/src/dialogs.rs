@@ -155,9 +155,13 @@ impl SaveDialog {
         let height = (screen.height() - 56.0).clamp(380.0, 560.0);
         let body_h = (height - HEAD_H - FOOT_H).max(200.0);
         let total_h = HEAD_H + body_h + FOOT_H;
+        // Never let the card exceed the window (resize safety); min window is 880x560.
+        let avail = ctx.screen_rect().shrink(20.0);
+        let card_w = CARD_W.min(avail.width());
+        let card_h = total_h.min(avail.height());
 
         let scrim = egui::Area::new(Id::new("lumen-save-scrim"))
-            .order(Order::Middle)
+            .order(Order::Foreground)
             .fixed_pos(screen.left_top())
             .show(ctx, |ui| {
                 let (rect, resp) = ui.allocate_exact_size(screen.size(), Sense::click());
@@ -185,7 +189,7 @@ impl SaveDialog {
             .movable(false)
             .order(Order::Foreground)
             .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
-            .fixed_size(Vec2::new(CARD_W, total_h))
+            .fixed_size(Vec2::new(card_w, card_h))
             .frame(
                 egui::Frame::new()
                     .fill(theme::PANEL)
@@ -195,12 +199,12 @@ impl SaveDialog {
             )
             .show(ctx, |ui| {
                 ui.spacing_mut().item_spacing = Vec2::ZERO;
-                ui.set_width(CARD_W);
-                ui.set_height(total_h);
+                ui.set_width(card_w);
+                ui.set_height(card_h);
 
                 // --- head ---------------------------------------------------
                 let (head, _) =
-                    ui.allocate_exact_size(Vec2::new(CARD_W, HEAD_H), Sense::hover());
+                    ui.allocate_exact_size(Vec2::new(card_w, HEAD_H), Sense::hover());
                 {
                     let painter = ui.painter();
                     painter.text(
