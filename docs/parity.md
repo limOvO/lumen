@@ -25,7 +25,7 @@ Tauri/WebKit build in this repo, driven by the same scripts.
 | 16 | Empty state | full editor chrome + centred drop card (drag/drop, 開啟圖片…, 快捷鍵, Ctrl+O hint) | B14/B14b (card pixel count + rail colour) |
 | 18 | Inspector grip | pill straddles the panel edge and drags the width (240–420) | G10 (pixel comparison against a live web capture) |
 | 19 | Tool + chrome icons | every inline SVG from src/index.html is flattened into `ui/svg_icons.rs` and used by rail, topbar, dock, panels, zoom HUD and modals | G13 (IoU), G13b (AA delta), G14 (row count); topbar pair reviewed visually |
-| 23 | Style dock | centred on the canvas area (not the window), 56px above the canvas bottom, idle slide-down 58%, width min(600, canvas-96) | G17 (debug rect vs computed geometry + unit test) |
+| 23 | Style dock | centred on the canvas area (not the window), 56px above the canvas bottom, idle slide-down 58%, width min(600, canvas-96), 52px tall with the swatch row vertically centred (web band 705..722) | G17 (debug rect vs computed geometry + unit test), G18 (swatch band vs live web capture) |
 | 20 | Window resize | preview keeps the 32px stage padding at 880x560 / 1280x820 / 1440x900; rail 52 / inspector 300 / status 24 hold | G15-*, G16-* |
 | 21 | Modal layering | the scrim dims the chrome underneath (dock no longer floats above the dialog) | G11 |
 | 22 | Small windows | the save dialog stays inside the 880x560 minimum window | G12 |
@@ -64,7 +64,7 @@ Known, accepted differences (not testable/changed here):
 ## Automated gate
 
 `python3 scripts/parity/verify.py` drives the real egui binary (private Xvfb `:96`) and asserts
-52 checks spanning geometry, palette parity against a live WebView capture, presence of every
+53 checks spanning geometry, palette parity against a live WebView capture, presence of every
 chrome region, tool behaviour (brush/line/arrow/rect/crop/text/delete/undo/redo/compare),
 zoom/fit behaviour, animated transitions (image switch, phase glide, rail slide, dock rise,
 peek close), idle CPU, languages, single-instance forwarding, save/save-as and the benchmark.

@@ -816,6 +816,64 @@ def main():
         stop(dp)
         cleanup()
 
+    # ---- dock swatch row alignment (pixel level, awake dock) ----
+    PAL = [(255, 92, 92), (255, 180, 87), (255, 217, 61), (61, 220, 151),
+           (91, 157, 255), (192, 132, 252)]
+
+    def swatch_row(img, y0=680, y1=745):
+        px = img.load()
+        pts = []
+        for y in range(y0, min(y1, img.height)):
+            for x in range(220, 820):
+                r, g, b = px[x, y]
+                if any(max(abs(r - p[0]), abs(g - p[1]), abs(b - p[2])) <= 6 for p in PAL):
+                    pts.append((x, y))
+        if not pts:
+            return None
+        ys = [p[1] for p in pts]; xs = [p[0] for p in pts]
+        return (min(xs), min(ys), max(xs), max(ys))
+
+    web_sw_shot = None
+    wp = start(WEB, fx)
+    try:
+        focus()
+        time.sleep(9.0)
+        wid = wait_window()
+        if wid:
+            geo = run(["xdotool", "getwindowgeometry", "--shell", wid]).stdout
+            vals = dict(line.split("=") for line in geo.strip().splitlines() if "=" in line)
+            wx, wy = int(vals.get("X", "0")), int(vals.get("Y", "0"))
+            click(wx + 1250, wy + 32, 1.6)
+            key("b", 0.5)
+            xdo("mousemove", wx + 516, wy + 740)
+            time.sleep(0.7)
+            web_sw_shot = OUT / "web-dock-swatches.png"
+            run(["import", "-display", DISPLAY, "-window", wid, str(web_sw_shot)])
+    finally:
+        stop(wp)
+    cleanup()
+    p = start(app, fx)
+    egui_sw_shot = None
+    try:
+        focus()
+        time.sleep(2.5)
+        key("e", 0.6)
+        key("b", 0.5)
+        xdo("mousemove", 516, 740)
+        time.sleep(0.8)
+        egui_sw_shot = shot("egui-26-swatches")
+    finally:
+        stop(p)
+    bw = swatch_row(img_arr(web_sw_shot)) if web_sw_shot else None
+    be = swatch_row(img_arr(egui_sw_shot)) if egui_sw_shot else None
+    ok = False
+    detail = f"web {bw} egui {be}"
+    if bw and be:
+        cy_w = (bw[1] + bw[3]) / 2; cy_e = (be[1] + be[3]) / 2
+        detail = f"swatch centre y {cy_w:.1f} vs {cy_e:.1f}, bands {bw[1]}..{bw[3]} vs {be[1]}..{be[3]}"
+        ok = abs(cy_w - cy_e) <= 2 and abs(bw[1] - be[1]) <= 2
+    check("G18", "dock colour swatches are vertically centred like the web", ok, detail)
+
     # ---- performance ----
     if quick:
         check("P2", "benchmark (skipped in --quick)", True, "quick mode")

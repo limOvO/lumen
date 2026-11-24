@@ -103,7 +103,12 @@ pub fn show(ctx: &egui::Context, state: &mut AppState) {
                     ui.horizontal_wrapped(|ui| {
                         ui.spacing_mut().item_spacing = Vec2::new(14.0, 8.0);
                         // Colour swatches + custom colour + dashed toggle.
-                        ui.horizontal(|ui| {
+                        // Web centres the swatch row against the slider stacks;
+                        // a plain nested horizontal aligned them to the top.
+                        ui.allocate_ui_with_layout(
+                            Vec2::new(252.0, 30.0),
+                            Layout::left_to_right(Align::Center),
+                            |ui| {
                             ui.spacing_mut().item_spacing.x = 5.0;
                             for color in TOOL_COLORS {
                                 let active = state.style.color == color;
@@ -147,7 +152,8 @@ pub fn show(ctx: &egui::Context, state: &mut AppState) {
                             {
                                 state.style.dashed = !state.style.dashed;
                             }
-                        });
+                            },
+                        );
 
                         // Width / opacity / font size (label above its slider).
                         let mut width = state.style.size;
@@ -197,10 +203,10 @@ fn slider_stack(
     max: f32,
 ) {
     ui.allocate_ui_with_layout(
-        Vec2::new(96.0, 34.0),
+        Vec2::new(96.0, 30.0),
         Layout::top_down(Align::Min),
         |ui| {
-            ui.spacing_mut().item_spacing = Vec2::new(0.0, 4.0);
+            ui.spacing_mut().item_spacing = Vec2::new(0.0, 2.0);
             widgets::slider_label(ui, label, value_text, 96.0);
             widgets::slider(ui, value, min, max, 96.0, true);
         },

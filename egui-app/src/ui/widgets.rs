@@ -842,7 +842,7 @@ pub fn slider(
     enabled: bool,
 ) -> Response {
     let enabled = is_enabled(ui, enabled);
-    let (rect, mut resp) = ui.allocate_exact_size(Vec2::new(width, 18.0), Sense::click_and_drag());
+    let (rect, mut resp) = ui.allocate_exact_size(Vec2::new(width, 16.0), Sense::click_and_drag());
     let before = *value;
     let mut v = (*value).clamp(min, max);
     if enabled && (resp.dragged() || resp.clicked()) {
@@ -877,7 +877,7 @@ pub fn slider(
 
 /// A `label … value` header above sliders/fields.
 pub fn slider_label(ui: &mut Ui, label: &str, value: &str, width: f32) {
-    let (rect, _) = ui.allocate_exact_size(Vec2::new(width, 14.0), Sense::hover());
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(width, 12.0), Sense::hover());
     let painter = ui.painter();
     painter.text(
         Pos2::new(rect.left(), rect.center().y),
