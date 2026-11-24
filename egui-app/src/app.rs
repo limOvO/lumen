@@ -594,12 +594,6 @@ impl LumenApp {
                     Rect::from_min_max(Pos2::ZERO, egui::pos2(1.0, 1.0)),
                     tint,
                 );
-                painter.rect_stroke(
-                    draw_rect,
-                    0.0,
-                    egui::Stroke::new(1.0, egui::Color32::from_rgba_premultiplied(255, 255, 255, 26)),
-                    egui::StrokeKind::Outside,
-                );
 
                 let to_screen = move |p: Pos2| center + (p.to_vec2() - img_center) * scale;
                 let to_image = move |p: Pos2| (img_center + (p.to_vec2() - center.to_vec2()) / scale).to_pos2();
