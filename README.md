@@ -112,10 +112,11 @@ everything else. Force it with `LUMEN_LANG=zh-Hans` (or `zh-Hant`, `en`).
 
 ## Rust + wgpu + egui build (parity-complete)
 
-Open / Save-as use the desktop's native file picker: **zenity** (on GNOME this
-goes through xdg-desktop-portal and shows the same GTK4 chooser as other apps) or
-**kdialog** on KDE. If neither is installed, or there is no portal session, the
-app falls back to its built-in browser; `LUMEN_INTERNAL_BROWSER=1` forces it.
+Open / Save-as use the system **GTK file chooser**, created in-process and pumped
+from the frame loop (no helper process, so the desktop does not show its busy
+cursor while it opens). If GTK/display cannot start, the app falls back to its
+built-in browser; `LUMEN_NO_NATIVE_DIALOG=1` (or `LUMEN_INTERNAL_BROWSER=1`)
+forces the built-in UI.
 
 A second build of Lumen is being ported to **Rust + wgpu + egui** (no WebView) to reach
 Loupe-class footprint with GPU rendering:

@@ -24,6 +24,7 @@ enum NativeKind {
 
 fn use_internal_browser() -> bool {
     std::env::var_os("LUMEN_INTERNAL_BROWSER").is_some()
+        || std::env::var_os("LUMEN_NO_NATIVE_DIALOG").is_some()
 }
 
 /// Single-parameter preview↔edit glide. Scale, position and the (animating)
@@ -63,6 +64,19 @@ pub struct LumenApp {
 }
 
 impl LumenApp {
+    fn log_cursor(&self, ctx: &egui::Context) {
+        if std::env::var_os("LUMEN_LOG").is_none() {
+            return;
+        }
+        let icon = ctx.output(|o| o.cursor_icon);
+        static LAST: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(255);
+        let byte = format!("{icon:?}").bytes().fold(0u8, |a, b| a.wrapping_add(b));
+        let prev = LAST.swap(byte, std::sync::atomic::Ordering::Relaxed);
+        if prev != byte {
+            eprintln!("[cursor] {icon:?}");
+        }
+    }
+
     fn log_event(&self, msg: &str) {
         if std::env::var_os("LUMEN_LOG").is_none() {
             return;
@@ -414,7 +428,7 @@ impl LumenApp {
         let suggested = save::suggested_name(doc, format);
         let suggested_path = std::path::PathBuf::from(&suggested);
         let title = self.state.locale.tr("另存新檔");
-        if let Some(dlg) = NativeDialog::save(ctx, &suggested_path, &title) {
+        if let Some(dlg) = NativeDialog::save(&suggested_path, &title) {
             self.native = Some((dlg, NativeKind::Save(self.state.output.clone())));
         } else {
             self.open_save_dialog();
@@ -536,12 +550,10 @@ impl LumenApp {
                     if use_internal_browser() {
                         let start = self.state.doc.as_ref().map(|d| d.path.clone());
                         self.browser.open_at(start);
-                    } else if let Some(dlg) =
-                        NativeDialog::open(ctx, start.as_deref(), &title)
-                    {
+                    } else if let Some(dlg) = NativeDialog::open(start.as_deref(), &title) {
                         self.native = Some((dlg, NativeKind::Open));
                     } else {
-                        // No zenity/kdialog: keep the in-app browser.
+                        // No GTK/display: keep the in-app browser.
                         let start = self.state.doc.as_ref().map(|d| d.path.clone());
                         self.browser.open_at(start);
                     }
@@ -753,7 +765,7 @@ impl eframe::App for LumenApp {
             self.incoming = Some(rx);
         }
         if let Some((dlg, _)) = self.native.as_mut() {
-            if let Some(result) = dlg.poll() {
+            if let Some(result) = dlg.poll(ctx) {
                 let (_, kind) = self.native.take().expect("native dialog state");
                 match (kind, result) {
                     (NativeKind::Open, Outcome::Picked(path)) => self.open(&path, Some(ctx)),
@@ -792,6 +804,7 @@ impl eframe::App for LumenApp {
         } else {
             self.dialog_snap = None;
         }
+        self.log_cursor(ctx);
         self.log_event("frame");
         if std::env::var_os("LUMEN_DEBUG_ZOOM").is_some() {
             let s = self.state.view.scale;

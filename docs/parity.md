@@ -7,7 +7,7 @@ Tauri/WebKit build in this repo, driven by the same scripts.
 
 | # | Area | Reference behaviour | Verification (verify.py check ids) |
 |---|---|---|---|
-| 1 | Open | File manager / CLI opens straight into the viewer; Ctrl+O shows the **desktop's native picker** (zenity → xdg-desktop-portal on GNOME, kdialog fallback) and falls back to the in-app browser when no portal/session exists | B14/B16/B17, G23a/G23a2/G23d |
+| 1 | Open | File manager / CLI opens straight into the viewer; Ctrl+O shows the **native GTK file chooser** (in-process `gtk::FileChooserDialog`, pumped from the frame loop — no child process, so no busy cursor) and falls back to the in-app browser when GTK cannot start (`LUMEN_NO_NATIVE_DIALOG=1` / `LUMEN_INTERNAL_BROWSER=1` force it) | B14/B16/B17, G23a/G23a2/G23d |
 | 2 | Preview | fit ≥ min scale, wheel zoom at cursor, drag-pan only when zoomed; zooming out stops at the **padded** fit view (the wheel/HUD/keyboard floor used the unpadded viewport, so 32% could only return to 33%) | B1/B2, B25 (floor == padded fit) |
 | 3 | Navigation | ← → through the folder, counter chip | A1 image switch + G3 chip |
 | 4 | Info | dimensions, format, size, mtime, path, EXIF rows | B3/B4 card open/close |
@@ -17,7 +17,7 @@ Tauri/WebKit build in this repo, driven by the same scripts.
 | 8 | Crop | 80% default frame, ratio presets rebuild the box, Shift ratio, apply keeps for export | B11 + crop unit tests (exact web numbers) |
 | 9 | Resize | max long edge / explicit width, export pixels match | unit tests (`export::target`, `flatten_dimensions…`) |
 | 10 | Compress | target KB: JPEG **and** lossy WebP bisect; output ≤ target when reachable, smallest fallback otherwise | unit tests (`encode_to_target_*`, `webp_encode_to_target_fits_300kb`) |
-| 11 | Save | save overwrite; save-as uses the **native save picker** (writes through the same flatten/encode path, Auto resolved) | B18/B19 + unit tests, G23b |
+| 11 | Save | save overwrite; save-as uses the **native GTK save chooser** (same flatten/encode path, Auto resolved, overwrite confirmation) | B18/B19 + unit tests, G23b |
 | 12 | Undo | 80 steps, first undo works | B6/B7 undo/redo |
 | 13 | Languages | zh-TW / zh-CN / en follow LANG, LUMEN_LANG override | B15 + full glyph coverage for Hans |
 | 14 | Shortcuts | `?` panel, Esc behaviour, F fullscreen, I info | B12 + B3/B4 |

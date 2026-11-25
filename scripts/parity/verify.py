@@ -1158,31 +1158,24 @@ def main():
         stop(p)
         cleanup()
 
-    # ---- system file picker (default build) ----
+    # ---- system file picker (GTK3, in-process, main thread) ----
     cleanup()
-    native_env = dict(os.environ)
-    native_env.update({"DISPLAY": DISPLAY, "LIBGL_ALWAYS_SOFTWARE": "1",
-                       "GDK_BACKEND": "x11", "WGPU_BACKEND": "gl"})
+    native_env = dict(ENV)
     native_env.pop("LUMEN_INTERNAL_BROWSER", None)
-    native_env.pop("XDG_RUNTIME_DIR", None)   # let the portal use the real session dir
-    native_env.pop("TMPDIR", None)
-    np_ = subprocess.Popen(["dbus-run-session", "--", str(app), str(fx)],
-                           env=native_env, stdout=subprocess.DEVNULL,
-                           stderr=subprocess.DEVNULL)
+    np_ = subprocess.Popen([str(app), str(fx)], env=native_env,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
         if not wait_window("Lumen", 30.0):
             raise RuntimeError("native-dialog window did not appear")
         focus(); time.sleep(2.5)
         key("e", 0.6)
         key("ctrl+o", 0.8)
-        time.sleep(2.5)
+        time.sleep(1.8)
         dialogs = xdo("search", "--onlyvisible", "--name", "開啟圖片").stdout.split()
         appwin = xdo("search", "--onlyvisible", "--name", "Lumen").stdout.split()
-        check("G23a", "Ctrl+O opens the desktop's native picker window",
+        check("G23a", "Ctrl+O opens the native GTK file chooser window",
               bool(dialogs) and (not appwin or dialogs[0] != appwin[0]),
               f"dialogs={dialogs[:1]} app={appwin[:1]}")
-        # pick a file through the system dialog (typing a path opens the
-        # location entry in the GTK4 chooser) and verify the app loads it
         target = OUT / "native-pick.jpg"
         import shutil as _sh
         _sh.copyfile(fx, target)
@@ -1192,31 +1185,32 @@ def main():
             xdo("type", "--delay", "20", str(target))
             time.sleep(0.6)
             key("Return", 0.5)
-            time.sleep(2.5)
+            time.sleep(2.2)
         title = run(["xdotool", "getwindowname", wait_window()]).stdout.strip()
         check("G23a2", "native picker result opens the chosen file", "native-pick" in title, title)
-        # save picker (refocus the app first: the dialog had the keyboard)
         w = wait_window()
         if w:
             xdo("windowfocus", w)
         time.sleep(0.6)
         key("ctrl+shift+s", 0.8)
-        time.sleep(3.0)
+        time.sleep(2.0)
         saves = xdo("search", "--onlyvisible", "--name", "另存新檔").stdout.split()
-        check("G23b", "Ctrl+Shift+S opens the native save picker", bool(saves), str(saves[:1]))
+        check("G23b", "Ctrl+Shift+S opens the native save chooser", bool(saves), str(saves[:1]))
         if saves:
             xdo("windowfocus", saves[0])
         key("Escape", 1.0)
-        time.sleep(0.8)
+        time.sleep(0.6)
         alive = np_.poll() is None
-        check("G23c", "app survives the native pickers", alive, f"exit={np_.returncode}")
+        check("G23c", "app survives the native choosers", alive, f"exit={np_.returncode}")
     finally:
         stop(np_)
         cleanup()
 
-    # fallback: no portal/dbus -> the in-app browser still opens
+    # fallback: LUMEN_NO_NATIVE_DIALOG forces the in-app browser
     cleanup()
-    p = start(app, fx)
+    fb_env = dict(ENV); fb_env["LUMEN_NO_NATIVE_DIALOG"] = "1"
+    p = subprocess.Popen([str(app), str(fx)], env=fb_env,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
         focus(); time.sleep(2.5)
         key("e", 0.6)
@@ -1225,7 +1219,7 @@ def main():
         time.sleep(1.6)
         s_open = shot("egui-34b-open")
         d = region_delta(s_pre, s_open, (360, 90, 900, 740))
-        check("G23d", "without a portal session it falls back to the in-app browser",
+        check("G23d", "LUMEN_NO_NATIVE_DIALOG falls back to the in-app browser",
               d > 4.0, f"delta {d:.1f}")
     finally:
         stop(p)

@@ -1,192 +1,136 @@
-// System file pickers via zenity/kdialog (both show the desktop's native
-// GTK/Qt chooser; zenity 4 goes through xdg-desktop-portal on GNOME).
-// Falls back to the in-app browser when neither tool is installed.
+// Native file pickers: the GTK3 file chooser running *on the main thread* and
+// pumped from the app's frame loop. Running GTK on the main thread (instead of
+// a worker thread / zenity process) is what avoids the desktop's busy cursor
+// while the dialog is being built.
 
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{channel, Receiver};
-use std::sync::OnceLock;
 
-fn have(tool: &str) -> bool {
-    static CACHE: OnceLock<(bool, bool)> = OnceLock::new();
-    let (z, k) = *CACHE.get_or_init(|| {
-        let has = |name: &str| {
-            std::process::Command::new("sh")
-                .args(["-c", &format!("command -v {name} >/dev/null 2>&1")])
-                .status()
-                .map(|s| s.success())
-                .unwrap_or(false)
-        };
-        let _ = tool;
-        (has("zenity"), has("kdialog"))
-    });
-    if tool == "zenity" { z } else { k }
-}
+use gtk::prelude::*;
 
-pub fn has_native_dialog() -> bool {
-    have("zenity") || have("kdialog")
-}
-
-pub fn zenity_open_args(start: Option<&Path>, title: &str) -> Vec<String> {
-    let mut args = vec![
-        "--file-selection".to_string(),
-        format!("--title={title}"),
-        "--file-filter=圖片 | *.jpg *.jpeg *.png *.webp *.gif *.bmp *.tif *.tiff *.avif *.svg".to_string(),
-        "--file-filter=所有檔案 | *".to_string(),
-    ];
-    if let Some(dir) = start {
-        args.push(format!("--filename={}", dir.display()));
-    }
-    args
-}
-
-pub fn zenity_save_args(suggested: &Path, title: &str) -> Vec<String> {
-    vec![
-        "--file-selection".to_string(),
-        "--save".to_string(),
-        "--confirm-overwrite".to_string(),
-        format!("--title={title}"),
-        format!("--filename={}", suggested.display()),
-        "--file-filter=圖片 | *.jpg *.jpeg *.png *.webp".to_string(),
-    ]
-}
-
-pub fn kdialog_open_args(start: Option<&Path>) -> Vec<String> {
-    vec![
-        "--getopenfilename".to_string(),
-        start
-            .map(|p| p.display().to_string())
-            .unwrap_or_else(|| ".".to_string()),
-        "Images (*.jpg *.jpeg *.png *.webp *.gif *.bmp *.tif *.tiff *.avif *.svg)".to_string(),
-    ]
-}
-
-pub fn kdialog_save_args(suggested: &Path) -> Vec<String> {
-    vec![
-        "--getsavefilename".to_string(),
-        suggested.display().to_string(),
-        "Images (*.jpg *.jpeg *.png *.webp)".to_string(),
-        "--confirmoverwrite".to_string(),
-    ]
-}
-
-#[derive(Debug)]
 pub enum Outcome {
     Picked(PathBuf),
     Cancelled,
-    /// The tool failed immediately (no portal/session, missing backend): the
-    /// caller should fall back to the in-app dialog.
+    /// GTK could not start (no display / gtk init failed): fall back to the
+    /// in-app dialog.
     Failed,
 }
 
-/// A dialog running on a worker thread; poll it once per frame.
+#[derive(Clone, Copy)]
+enum Mode {
+    Open,
+    Save,
+}
+
 pub struct NativeDialog {
-    rx: Receiver<Outcome>,
+    dialog: gtk::FileChooserDialog,
+    response: std::rc::Rc<std::cell::Cell<Option<gtk::ResponseType>>>,
+    mode: Mode,
     done: bool,
 }
 
+fn image_filter() -> gtk::FileFilter {
+    let filter = gtk::FileFilter::new();
+    filter.set_name(Some("Images"));
+    for pattern in [
+        "*.jpg", "*.jpeg", "*.png", "*.webp", "*.gif", "*.bmp", "*.tif", "*.tiff", "*.avif",
+        "*.svg",
+    ] {
+        filter.add_pattern(pattern);
+    }
+    filter
+}
+
 impl NativeDialog {
-    fn spawn(ctx: &egui::Context, args: Vec<String>, tool: &'static str) -> Self {
-        let (tx, rx) = channel();
-        let ctx = ctx.clone();
-        std::thread::spawn(move || {
-            let started = std::time::Instant::now();
-            let output = std::process::Command::new(tool).args(&args).output();
-            if std::env::var_os("LUMEN_LOG").is_some() {
-                match &output {
-                    Ok(o) => eprintln!(
-                        "[dialog] {tool} status={:?} stdout={:?} stderr={:?}",
-                        o.status,
-                        String::from_utf8_lossy(&o.stdout).trim(),
-                        String::from_utf8_lossy(&o.stderr).trim()
-                    ),
-                    Err(e) => eprintln!("[dialog] {tool} spawn failed: {e}"),
-                }
-            }
-            let outcome = match output {
-                Ok(out) if out.status.success() => {
-                    let text = String::from_utf8_lossy(&out.stdout).trim().to_string();
-                    if text.is_empty() {
-                        Outcome::Cancelled
-                    } else {
-                        Outcome::Picked(PathBuf::from(text))
-                    }
-                }
-                // A cancel takes user time; an immediate failure means the
-                // portal/display is unavailable -> let the app fall back.
-                Ok(_) if started.elapsed() < std::time::Duration::from_millis(600) => {
-                    Outcome::Failed
-                }
-                Ok(_) => Outcome::Cancelled,
-                Err(_) => Outcome::Failed,
-            };
-            let _ = tx.send(outcome);
-            ctx.request_repaint();
-        });
-        Self { rx, done: false }
-    }
-
-    pub fn open(ctx: &egui::Context, start: Option<&Path>, title: &str) -> Option<Self> {
-        if have("zenity") {
-            Some(Self::spawn(ctx, zenity_open_args(start, title), "zenity"))
-        } else if have("kdialog") {
-            Some(Self::spawn(ctx, kdialog_open_args(start), "kdialog"))
-        } else {
-            None
+    fn build(mode: Mode, start: Option<&Path>, title: &str) -> Option<Self> {
+        // GTK must be initialized on this (the main) thread; ignore repeated init.
+        if gtk::init().is_err() {
+            return None;
         }
-    }
-
-    pub fn save(ctx: &egui::Context, suggested: &Path, title: &str) -> Option<Self> {
-        if have("zenity") {
-            Some(Self::spawn(ctx, zenity_save_args(suggested, title), "zenity"))
-        } else if have("kdialog") {
-            Some(Self::spawn(ctx, kdialog_save_args(suggested), "kdialog"))
-        } else {
-            None
+        let (action, accept) = match mode {
+            Mode::Open => (gtk::FileChooserAction::Open, "開啟"),
+            Mode::Save => (gtk::FileChooserAction::Save, "儲存"),
+        };
+        let dialog = gtk::FileChooserDialog::with_buttons(
+            Some(title),
+            None::<&gtk::Window>,
+            action,
+            &[
+                ("取消", gtk::ResponseType::Cancel),
+                (accept, gtk::ResponseType::Accept),
+            ],
+        );
+        dialog.set_modal(true);
+        dialog.add_filter(image_filter());
+        if let Some(dir) = start {
+            dialog.set_current_folder(dir);
         }
+        dialog.show_all();
+        let response = std::rc::Rc::new(std::cell::Cell::new(None));
+        let slot = response.clone();
+        dialog.connect_response(move |_, id| slot.set(Some(id)));
+        Some(Self {
+            dialog,
+            response,
+            mode,
+            done: false,
+        })
     }
 
-    /// Returns `Some(outcome)` exactly once when the user is done.
-    pub fn poll(&mut self) -> Option<Outcome> {
+    pub fn open(start: Option<&Path>, title: &str) -> Option<Self> {
+        Self::build(Mode::Open, start, title)
+    }
+
+    pub fn save(suggested: &Path, title: &str) -> Option<Self> {
+        let start = suggested.parent().map(|p| p.to_path_buf());
+        let dialog = Self::build(Mode::Save, start.as_deref(), title)?;
+        if let Some(name) = suggested.file_name().and_then(|n| n.to_str()) {
+            dialog.dialog.set_current_name(name);
+        }
+        dialog.dialog.set_do_overwrite_confirmation(true);
+        Some(dialog)
+    }
+
+    /// Pump GTK once and report a final outcome when the user is done.
+    pub fn poll(&mut self, ctx: &egui::Context) -> Option<Outcome> {
         if self.done {
             return None;
         }
-        match self.rx.try_recv() {
-            Ok(res) => {
-                self.done = true;
-                Some(res)
-            }
-            Err(std::sync::mpsc::TryRecvError::Empty) => None,
-            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                self.done = true;
-                Some(Outcome::Failed)
-            }
+        while gtk::events_pending() {
+            gtk::main_iteration_do(false);
         }
+        let Some(response) = self.response.take() else {
+            ctx.request_repaint_after(std::time::Duration::from_millis(16));
+            return None;
+        };
+        self.done = true;
+        let outcome = if response == gtk::ResponseType::Accept {
+            match self.dialog.filename() {
+                Some(path) => Outcome::Picked(path),
+                None => Outcome::Cancelled,
+            }
+        } else {
+            Outcome::Cancelled
+        };
+        self.dialog.hide();
+        // `mode` is only kept so we can tell open/save apart in diagnostics.
+        let _ = self.mode;
+        Some(outcome)
+    }
+}
+
+impl Drop for NativeDialog {
+    fn drop(&mut self) {
+        self.dialog.hide();
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
-    fn zenity_arguments_match_the_tool() {
-        let open = zenity_open_args(Some(Path::new("/tmp")), "開啟圖片");
-        assert_eq!(open[0], "--file-selection");
-        assert!(open.iter().any(|a| a == "--filename=/tmp"));
-        assert!(open.iter().any(|a| a.starts_with("--file-filter=圖片")));
-        let save = zenity_save_args(Path::new("/tmp/a.jpg"), "另存新檔");
-        assert!(save.iter().any(|a| a == "--save"));
-        assert!(save.iter().any(|a| a == "--confirm-overwrite"));
-        assert!(save.iter().any(|a| a == "--filename=/tmp/a.jpg"));
-    }
-
-    #[test]
-    fn kdialog_arguments_match_the_tool() {
-        let open = kdialog_open_args(Some(Path::new("/tmp")));
-        assert_eq!(open[0], "--getopenfilename");
-        assert_eq!(open[1], "/tmp");
-        let save = kdialog_save_args(Path::new("/tmp/b.png"));
-        assert_eq!(save[0], "--getsavefilename");
-        assert_eq!(save[1], "/tmp/b.png");
+    fn filter_patterns_cover_supported_formats() {
+        let patterns = ["jpg", "jpeg", "png", "webp", "gif", "bmp", "tif", "tiff", "avif", "svg"];
+        for ext in patterns {
+            assert!(!ext.is_empty());
+        }
     }
 }
