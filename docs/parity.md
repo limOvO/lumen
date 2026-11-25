@@ -7,7 +7,7 @@ Tauri/WebKit build in this repo, driven by the same scripts.
 
 | # | Area | Reference behaviour | Verification (verify.py check ids) |
 |---|---|---|---|
-| 1 | Open | File manager / CLI opens straight into the viewer | B14/B16/B17 (launch, single instance, forwarded file) |
+| 1 | Open | File manager / CLI opens straight into the viewer; Ctrl+O shows the **desktop's native picker** (zenity → xdg-desktop-portal on GNOME, kdialog fallback) and falls back to the in-app browser when no portal/session exists | B14/B16/B17, G23a/G23a2/G23d |
 | 2 | Preview | fit ≥ min scale, wheel zoom at cursor, drag-pan only when zoomed; zooming out stops at the **padded** fit view (the wheel/HUD/keyboard floor used the unpadded viewport, so 32% could only return to 33%) | B1/B2, B25 (floor == padded fit) |
 | 3 | Navigation | ← → through the folder, counter chip | A1 image switch + G3 chip |
 | 4 | Info | dimensions, format, size, mtime, path, EXIF rows | B3/B4 card open/close |
@@ -17,7 +17,7 @@ Tauri/WebKit build in this repo, driven by the same scripts.
 | 8 | Crop | 80% default frame, ratio presets rebuild the box, Shift ratio, apply keeps for export | B11 + crop unit tests (exact web numbers) |
 | 9 | Resize | max long edge / explicit width, export pixels match | unit tests (`export::target`, `flatten_dimensions…`) |
 | 10 | Compress | target KB: JPEG **and** lossy WebP bisect; output ≤ target when reachable, smallest fallback otherwise | unit tests (`encode_to_target_*`, `webp_encode_to_target_fits_300kb`) |
-| 11 | Save | save overwrite / save-as, JPEG white background, EXIF stripped | B18/B19 end-to-end + unit tests |
+| 11 | Save | save overwrite; save-as uses the **native save picker** (writes through the same flatten/encode path, Auto resolved) | B18/B19 + unit tests, G23b |
 | 12 | Undo | 80 steps, first undo works | B6/B7 undo/redo |
 | 13 | Languages | zh-TW / zh-CN / en follow LANG, LUMEN_LANG override | B15 + full glyph coverage for Hans |
 | 14 | Shortcuts | `?` panel, Esc behaviour, F fullscreen, I info | B12 + B3/B4 |
@@ -32,7 +32,8 @@ Tauri/WebKit build in this repo, driven by the same scripts.
 | 17 | Drag & drop | dropping a file/folder opens it | implemented in app.rs (`raw.dropped_files`), covered by code review (xdotool cannot synthesise DnD) |
 | 24 | CJK coverage | every common hanzi (GB2312/GBK/Big5, 20,923 chars) resolves via the **system** CJK face (known Noto paths, then `fc-match` for any distro CJK fallback); typed text and file names never show tofu, and the binary stays ~15 MB (embedded subsets cover the UI). When no system CJK font exists only UI text renders and the coverage test reports it | `fonts::tests` glyph-coverage test against the system face |
 | 25 | Micro-interactions | tool pill/bar slide + press scale, swatch ring pop, browser row press pop, shortcuts close fade/scale, dock wake hysteresis | A6/A7/A9, G20, plus ui/motion unit tests |
-| 26 | Browser flow | select an image, close, reopen, open it; Enter in the path field no longer double-fires the list activation | G19/G19b |
+| 26 | Browser flow | in-app browser (fallback / `LUMEN_INTERNAL_BROWSER=1`): select an image, close, reopen, open it; Enter in the path field no longer double-fires the list activation | G19/G19b |
+| 30 | System pickers | Ctrl+O / Ctrl+Shift+S open zenity/portal windows owned by the desktop, their result drives open/save, and the app stays alive; no portal ⇒ automatic in-app fallback | G23a/G23a2/G23b/G23c/G23d |
 | 28 | Phase transition | single eased parameter drives the canvas rect, scale and offset of the preview↔edit glide (300 ms), so every image corner moves in a straight line — no slide-then-shrink curve, no bounce; measured monotonic width 1026→938→882→864→862 px | A2 (multiple distinct frame sizes + monotonic width) |
 | 29 | Image switching | neighbour previews are prefetched on a worker thread and JPEGs decode through libjpeg-turbo's scaled IDCT (TJSCALED ceiling); ←/→ median 3–6 ms for 12 MP pairs | P3 (<=60 ms median) |
 | 27 | Modal layering | the dialog window is `Order::Tooltip` so it is always above the Foreground scrim (the old same-order setup could paint the scrim on top after certain open/close cycles → dimmed, unclickable dialog); close paths reset selection/error; the style dock is hidden while a modal is open | G22/G22b (three close variants: Esc, ✕, outside click — dialog brightness identical and the browser still opens images) |

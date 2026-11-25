@@ -11,9 +11,20 @@ use crate::dialogs::{SaveChoice, SaveDialog};
 use crate::doc::{siblings, Doc, LoadOptions};
 use crate::interaction::{self, CanvasView};
 use crate::state::{AppState, Phase, StatusKind, UiAction};
+use crate::native_dialog::{NativeDialog, Outcome};
 use crate::state::OutputFormat;
 use crate::{export, save};
 use crate::{theme, ui};
+
+/// What the running system dialog will do with its result.
+enum NativeKind {
+    Open,
+    Save(crate::state::OutputSettings),
+}
+
+fn use_internal_browser() -> bool {
+    std::env::var_os("LUMEN_INTERNAL_BROWSER").is_some()
+}
 
 /// Single-parameter preview↔edit glide. Scale, position and the (animating)
 /// canvas rect all interpolate with one eased parameter, so every image corner
@@ -43,6 +54,7 @@ pub struct LumenApp {
     phase_pending: bool,
     phase_anim: Option<PhaseAnim>,
     debug_last_zoom: f32,
+    native: Option<(NativeDialog, NativeKind)>,
     switch: Option<(f32, f64)>,                   // direction, t0
     switch_dir: f32,
     perf: bool,
@@ -100,6 +112,7 @@ impl LumenApp {
             phase_pending: false,
             phase_anim: None,
             debug_last_zoom: -1.0,
+            native: None,
             switch: None,
             switch_dir: 0.0,
             perf: false,
@@ -392,6 +405,22 @@ impl LumenApp {
         }
     }
 
+    fn open_native_save(&mut self, ctx: &egui::Context) {
+        let Some(doc) = self.state.doc.as_ref() else {
+            self.state.status("先開啟一張圖片", StatusKind::Info, now());
+            return;
+        };
+        let format = self.state.output.format.resolve(doc);
+        let suggested = save::suggested_name(doc, format);
+        let suggested_path = std::path::PathBuf::from(&suggested);
+        let title = self.state.locale.tr("另存新檔");
+        if let Some(dlg) = NativeDialog::save(ctx, &suggested_path, &title) {
+            self.native = Some((dlg, NativeKind::Save(self.state.output.clone())));
+        } else {
+            self.open_save_dialog();
+        }
+    }
+
     fn open_save_dialog(&mut self) {
         let Some(doc) = self.state.doc.as_ref() else {
             self.state.status("先開啟一張圖片", StatusKind::Info, now());
@@ -412,11 +441,25 @@ impl LumenApp {
             choice.output.max_dim,
             choice.output.scale,
         );
+        // `Auto` must be resolved against the document before encoding (the
+        // native picker hands us the raw settings, unlike the in-app dialog).
+        let format = choice.output.format.resolve(doc);
         let bytes = match choice.output.target_kb {
-            Some(kb) => export::encode_to_target(&flat.image, choice.output.format, kb),
-            None => export::encode(&flat.image, choice.output.format, choice.output.quality),
+            Some(kb) => export::encode_to_target(&flat.image, format, kb),
+            None => export::encode(&flat.image, format, choice.output.quality),
         };
-        match save::save_as(&choice.path, &bytes) {
+        let save_result = save::save_as(&choice.path, &bytes);
+        if std::env::var_os("LUMEN_LOG").is_some() {
+            eprintln!(
+                "[save] path={} bytes={} result={:?} exists={} len={:?}",
+                choice.path.display(),
+                bytes.len(),
+                save_result.as_ref().map(|p| p.display().to_string()),
+                choice.path.exists(),
+                std::fs::metadata(&choice.path).ok().map(|m| m.len())
+            );
+        }
+        match save_result {
             Ok(path) => {
                 let size = bytes.len();
                 self.state.output = choice.output;
@@ -484,12 +527,32 @@ impl LumenApp {
                 UiAction::Estimate => self.refresh_estimate(None),
                 UiAction::Open => {
                     crate::fonts::ensure_system(ctx, self.state.locale);
-                    let start = self.state.doc.as_ref().map(|d| d.path.clone());
-                    self.browser.open_at(start);
+                    let start = self
+                        .state
+                        .doc
+                        .as_ref()
+                        .and_then(|d| d.path.parent().map(|p| p.to_path_buf()));
+                    let title = self.state.locale.tr("開啟圖片");
+                    if use_internal_browser() {
+                        let start = self.state.doc.as_ref().map(|d| d.path.clone());
+                        self.browser.open_at(start);
+                    } else if let Some(dlg) =
+                        NativeDialog::open(ctx, start.as_deref(), &title)
+                    {
+                        self.native = Some((dlg, NativeKind::Open));
+                    } else {
+                        // No zenity/kdialog: keep the in-app browser.
+                        let start = self.state.doc.as_ref().map(|d| d.path.clone());
+                        self.browser.open_at(start);
+                    }
                 }
                 UiAction::SaveAs | UiAction::Export => {
                     crate::fonts::ensure_system(ctx, self.state.locale);
-                    self.open_save_dialog()
+                    if use_internal_browser() {
+                        self.open_save_dialog();
+                    } else {
+                        self.open_native_save(ctx);
+                    }
                 }
             }
         }
@@ -688,6 +751,25 @@ impl eframe::App for LumenApp {
                 self.open(&path, Some(ctx));
             }
             self.incoming = Some(rx);
+        }
+        if let Some((dlg, _)) = self.native.as_mut() {
+            if let Some(result) = dlg.poll() {
+                let (_, kind) = self.native.take().expect("native dialog state");
+                match (kind, result) {
+                    (NativeKind::Open, Outcome::Picked(path)) => self.open(&path, Some(ctx)),
+                    (NativeKind::Save(output), Outcome::Picked(path)) => {
+                        self.save_choice(ctx, SaveChoice { path, output })
+                    }
+                    // No portal/session or the tool failed: fall back so the app
+                    // stays usable (this is also the path under Xvfb).
+                    (NativeKind::Open, Outcome::Failed) => {
+                        let start = self.state.doc.as_ref().map(|d| d.path.clone());
+                        self.browser.open_at(start);
+                    }
+                    (NativeKind::Save(_), Outcome::Failed) => self.open_save_dialog(),
+                    (_, Outcome::Cancelled) => {}
+                }
+            }
         }
         if self.browser.open {
             let locale = self.state.locale;
