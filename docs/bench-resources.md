@@ -20,7 +20,7 @@ Reproduce: `scripts/bench-resources.sh 3` (image: `/tmp/qa-big.jpg`, 4000x3000).
 | Idle CPU (editor) | **0.0 %** | 2.5 % | 2.8 % |
 | Time to window | 81 ms | 85 ms | 166 ms |
 | Time to photo | **81 ms** | 482 ms | 232 ms (4000x3000: 347 ms) |
-| Binary on disk | 15 MB | 4 MB + system WebKit | 7 MB + system GTK |
+| Binary on disk | **9.6 MB** (size profile) | 4 MB + system WebKit (141 MB) | 7 MB + system GTK (54 MB) + glycin (20 MB) |
 
 Notes:
 - The egui build wins on every memory metric in this harness, and is completely

@@ -15,7 +15,7 @@ median of 4 runs. "photo" = first frame in a 60 fps capture that shows the pictu
 | current Lumen (Tauri + WebKit) | 81 ms | 447 ms | 469 ms | 263 MB | 269 MB |
 | `spikes/gtk3-viewer` (GTK3 + cairo) | 54 ms | **54 ms** | **104 ms** | **24 MB** | **95 MB** |
 | `spikes/egui-viewer` (wgpu + egui) | 71 ms | 71 ms | 129 ms | 116 MB | 155 MB |
-| **`egui-app` (final)** | 81 ms | **81 ms** | 82 ms | 143 MB | 146 MB | **79 ms** | 238 ms | 148 MB | 165 MB |
+| **`egui-app` (final, size profile)** | 81 ms | **81 ms** | 90 ms | 140 MB | 142 MB | **79 ms** | 238 ms | 148 MB | 165 MB |
 | Loupe 51.2 (GTK4 / libadwaita) | 146 ms | 212 ms | 339 ms | 113 MB | 137 MB |
 
 ## Note on the egui numbers
@@ -33,7 +33,7 @@ two-point handles, 80-step undo, and a full-resolution export pipeline with targ
 compression. The rewrite now also has: lossy WebP with target-KB bisection, weight-600 annotation text
 on screen and in exports, folder-browser thumbnails matching the CSS row geometry,
 single-instance forwarding (second launch updates the running window), and packaging
-(scripts/build-egui.sh / install-egui.sh + desktop entry). Resource comparison: [bench-resources.md](bench-resources.md). Parity gate:
+(scripts/build-egui.sh / install-egui.sh + desktop entry). Resource comparison: [bench-resources.md](bench-resources.md). Release profile: `opt-level="z"`, fat LTO, `codegen-units=1`, stripped → **9.6 MB** binary (was 15.2 MB) with no measurable speed regression (bench below). Parity gate:
 `scripts/parity/check.sh` (12 paired captures + geometry) and 118 unit tests.
 
 ## What the spikes show

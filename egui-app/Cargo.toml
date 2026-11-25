@@ -19,6 +19,10 @@ ab_glyph = "0.2"
 webp = "0.3"
 
 [profile.release]
-opt-level = 2
-lto = "thin"
-strip = true
+# Size-first profile: ~9.5 MB binary (was ~15.2 MB). The hot decode path is
+# system libjpeg-turbo, so the opt-level=z penalty is limited to Rust-side image
+# resizing/encoding. Verified with scripts/parity/verify.py + bench-egui.sh.
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+strip = "symbols"
