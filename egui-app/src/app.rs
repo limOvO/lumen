@@ -56,6 +56,7 @@ pub struct LumenApp {
     phase_anim: Option<PhaseAnim>,
     debug_last_zoom: f32,
     native: Option<(NativeDialog, NativeKind)>,
+    title_set: bool,
     switch: Option<(f32, f64)>,                   // direction, t0
     switch_dir: f32,
     perf: bool,
@@ -127,6 +128,7 @@ impl LumenApp {
             phase_anim: None,
             debug_last_zoom: -1.0,
             native: None,
+            title_set: false,
             switch: None,
             switch_dir: 0.0,
             perf: false,
@@ -140,6 +142,16 @@ impl LumenApp {
     }
 
     pub fn open(&mut self, path: &Path, ctx: Option<&egui::Context>) {
+        // A folder argument (CLI / drag & drop) opens its first image, matching
+        // the original build and `--help`.
+        if path.is_dir() {
+            let images = crate::doc::siblings(&path.join(".lumen-dir-probe"));
+            if let Some(first) = images.first().cloned() {
+                return self.open(&first, ctx);
+            }
+            self.state.error = Some(self.state.locale.tr("這個資料夾沒有圖片"));
+            return;
+        }
         let cap = max_pixels(ctx);
         match Doc::load(path, LoadOptions { max_pixels: cap }) {
             Ok(doc) => {
@@ -183,6 +195,7 @@ impl LumenApp {
                 if let Some(ctx) = ctx {
                     let title = format!("{name} — Lumen");
                     ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
+                    self.title_set = true;
                 }
             }
             Err(err) => {
@@ -736,6 +749,14 @@ impl eframe::App for LumenApp {
                 }
             } else {
                 self.open(&path, Some(ctx));
+            }
+        }
+        // The initial CLI launch opens the doc before a Context exists; set the
+        // window title on the first frame that has one.
+        if !self.title_set {
+            if let Some(name) = self.state.doc.as_ref().map(|d| d.name.clone()) {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Title(format!("{name} — Lumen")));
+                self.title_set = true;
             }
         }
         let modal_open = self.browser.open || self.dialog.open;

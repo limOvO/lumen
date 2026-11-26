@@ -1,35 +1,58 @@
-# Resource comparison — Lumen (egui rewrite) vs Loupe vs the Tauri build
+# Benchmarks — Lumen (egui rewrite) vs Loupe vs the Tauri/WebKit build
 
-Measured on this machine (i9-13900F, 32 threads) under Xvfb 1440x900 with
-**software GL (llvmpipe)** and `LIBGL_ALWAYS_SOFTWARE=1` for all three apps, so
-the numbers are comparable with each other but pessimistic in absolute terms
-(no GPU driver memory/threads). Process-tree totals include helper processes
-(WebKit web/network processes for the Tauri build, image workers for Loupe).
+All numbers measured on this machine (i9-13900F, 32 threads, CachyOS) under a
+headless Xvfb 1440x900 session with **software GL (llvmpipe)** for every app, so
+the comparison is fair but absolute numbers are pessimistic (no GPU driver, no
+compositor). Memory is a **process-tree total** (includes helper processes:
+WebKitWebProcess/NetworkProcess for the Tauri build, image workers for Loupe).
 
-Reproduce: `scripts/bench-resources.sh 3` (image: `/tmp/qa-big.jpg`, 4000x3000).
+- Time to window / time to photo: `scripts/bench-egui.sh 3`, `scripts/bench-vs-loupe.sh <img> 3`
+- Memory / CPU / threads / FDs: `scripts/bench-resources.sh 3`
+- Image switching: `scripts/parity/verify.py` check P3
+- Binary size: `ls -l dist/lumen-egui`
 
-| Metric (median of 3) | **Lumen (egui)** | Lumen (Tauri/WebKit) | Loupe 51.2 |
+## Time to photo (4000×3000 and 1400×934 samples, median of 3)
+
+| | 1.3 MP | 12 MP |
+|---|---|---|
+| **Lumen (egui)** | **87 ms** | **85 ms** |
+| Lumen (Tauri/WebKit) | 444 ms | 464 ms |
+| Loupe 51.2 | 204 ms | 331 ms |
+
+Window shown: Lumen 85–87 ms, Tauri 85–94 ms, Loupe 138–141 ms.
+Switching to the next/previous image: median **3 ms** (neighbour previews are
+prefetched and JPEGs decode through libjpeg-turbo's scaled IDCT).
+
+## Memory & CPU (4000×3000 image, median of 3)
+
+| Metric | **Lumen (egui)** | Lumen (Tauri/WebKit) | Loupe 51.2 |
 |---|---|---|---|
-| Process-tree PSS | **147 MB** | 435 MB | 229 MB |
-| Process-tree RSS | **201 MB** | 708 MB | 348 MB |
-| Anonymous (Pss_Anon) | 77 MB | 244 MB | **70 MB** |
-| Peak RSS (VmHWM) | **395 MB** | 798 MB | 644 MB |
-| Threads | **68** | 231 | 147 |
-| Open file descriptors | **16** | 122 | 98 |
-| Idle CPU (viewer, no input) | **0.0 %** | 2.7 % | 5.5 % |
-| Idle CPU (editor) | **0.0 %** | 2.5 % | 2.8 % |
-| Time to window | 81 ms | 85 ms | 166 ms |
-| Time to photo | **81 ms** | 482 ms | 232 ms (4000x3000: 347 ms) |
-| Binary on disk | **9.6 MB** (size profile) | 4 MB + system WebKit (141 MB) | 7 MB + system GTK (54 MB) + glycin (20 MB) |
+| PSS (process tree) | **135 MB** | 338 MB | 229 MB |
+| RSS (process tree) | **206 MB** | 619 MB | 346 MB |
+| Anonymous memory | 78 MB | 166 MB | **67 MB** |
+| Peak RSS (VmHWM) | **400 MB** | 697 MB | 644 MB |
+| Threads | **68** | 186 | 147 |
+| Open file descriptors | **41** | 197 | 122 |
+| Idle CPU — viewer | **0.0 %** | 2.2 % | 5.2 % |
+| Idle CPU — editor | **0.0 %** | 2.2 % | 2.7 % |
+| Binary on disk | 9.6 MB | 4 MB + WebKit 141 MB + GTK 54 MB | 8 MB + GTK 54 MB + glycin 20 MB |
 
 Notes:
-- The egui build wins on every memory metric in this harness, and is completely
-  idle when nothing happens (event-driven: no timer loop), which is why idle CPU
-  is 0.0 % instead of the 2–6 % the other two keep burning.
-- Anonymous memory is essentially tied with Loupe (77 vs 70 MB); our extra PSS is
-  mostly the software-GL llvmpipe libraries and their worker threads, which a
-  real GPU run does not carry.
-- The Tauri build's totals include a WebKitWebProcess and NetworkProcess (the
-  egui build has neither).
-- Time-to-photo: egui 81 ms vs Loupe 232 ms (1.3 MP) / 347 ms (12 MP) vs Tauri
-  482/515 ms. Photoload benchmark: `scripts/bench-egui.sh`, `scripts/bench-vs-loupe.sh`.
+- The egui build is event-driven: when nothing happens it does not repaint, so
+  idle CPU is literally 0 ticks. The other two keep a compositor/animation timer
+  running.
+- Anonymous memory (what the program itself owns) is close to Loupe (78 vs
+  67 MB); most of our extra PSS is the software-GL llvmpipe libraries and their
+  worker threads, which a real GPU run does not carry.
+- The Tauri build spawns a full WebKitWebProcess and NetworkProcess; the egui
+  build has neither.
+
+## Reproduce
+
+```bash
+scripts/bench-egui.sh 3
+scripts/bench-vs-loupe.sh /tmp/qa-small.jpg 3
+scripts/bench-vs-loupe.sh /tmp/qa-big.jpg 3
+scripts/bench-resources.sh 3
+python3 scripts/parity/verify.py        # includes P3 (switch latency) + P2 (vs WebView)
+```

@@ -1,144 +1,120 @@
 # Lumen
 
-**English** · [繁體中文](README.zh-TW.md)
+**A fast, small image viewer and annotator for Linux.**
+Lumen opens the photo before you finish clicking — and stays out of the way
+afterwards. This repository contains the **Rust + wgpu + egui rewrite** of the
+original Tauri/WebKit app (kept alongside for reference).
 
-A lightweight image viewer for Linux that also annotates.
-One 4 MB binary, no runtime, window up in ~80 ms — a drop-in replacement for the
-preinstalled GNOME image viewer (Loupe).
+[繁體中文](README.zh-TW.md) · [Parity matrix](docs/parity.md) · [Benchmarks](docs/bench-resources.md) · [Architecture](docs/architecture.md)
 
-![Lumen demo: preview → next image → editor → annotations](docs/showcase/demo.gif)
-
-| Preview | Edit |
-|---|---|
-| ![Preview](docs/showcase/preview.png) | ![Edit](docs/showcase/edit.png) |
+![Lumen preview](docs/screenshot-egui-preview.png)
+![Lumen editor](docs/screenshot-egui-edit.png)
 
 ## Why Lumen
 
-| | **Lumen** | **Image Viewer** (GNOME, Loupe 51.2) |
-|---|---|---|
-| **Built with** | Tauri 2 (Rust + system WebView), vanilla HTML/CSS | GTK4 / libadwaita (Rust) |
-| **App binary** | **4.0 MB** single ELF | 6.8 MB (package 8.1 MiB) |
-| **Window appears** | **81 ms** (1400×934) · **86 ms** (12 MP) | 146 ms · 148 ms |
-| **Photo visible** | 447 ms · 469 ms | **212 ms** · **339 ms** |
-| **Memory while viewing** (PSS) | 263 MB · 269 MB | **113 MB** · **137 MB** |
-| **Runtime dependencies** | webkit2gtk-4.1 (141 MiB) + GTK3 (54 MiB) | GTK4 (57 MiB) + libadwaita (5.4) + glycin (19.6) |
-| **What it does** | view, **crop**, **resize**, **compress to a target KB**, **annotate** | view, **crop**, rotate, flip |
-| **Annotations** | brush, line, rectangle, ellipse, two-point arrow, text — colour, width, opacity, dashed | — |
-| **Crop** | ✅ free crop + ratio presets, Shift-lock, non-destructive until save | ✅ ratio presets (任意/1:1/4:3/3:2/16:9/5:4), rotate & mirror, applied on save |
-| **Resize / compress to a target KB** | ✅ long-edge limit, target-KB quality search | — |
-| **EXIF / GPS panel** | ✅ full EXIF (camera, lens, exposure, GPS) | ✅ properties panel (dimensions, format, size, dates, ISO, GPS location) |
-| **Folder browsing** | ✅ built-in folder browser, ← → through the folder | ‹ › between neighbouring images, no folder browser |
-| **Undo** | 80-step history, edits stay non-destructive | cancel / reset inside the edit view (no history) |
-| **Privacy on save** | EXIF/GPS stripped from the saved file | overwrites the original in place, no stripping option |
-| **Languages** | Traditional Chinese, Simplified Chinese, English | all GNOME languages |
+- **Opens instantly.** ~87 ms from launch to visible photo (and ~3 ms to switch
+  to the next image), against 204–331 ms for Loupe and 444–464 ms for the
+  original WebKit build on the same machine.
+- **Small and quiet.** One 9.6 MB binary, ~135 MB PSS with software GL, **0.0 %
+  idle CPU** — it does not repaint when nothing happens.
+- **Actually editable.** Brush, line, rectangle, ellipse, arrow and text
+  annotations (colour, width, opacity, dashed), crop with ratio presets, resize,
+  and target-KB compression to JPEG/PNG/WebP.
+- **Native by default.** System GTK file chooser for open/save-as, system CJK
+  font for text, single-instance forwarding from the file manager, drag &
+  drop, and a desktop shortcut.
+- **Keeps your habits.** The keyboard model, layout, palette and motion of the
+  original app are preserved and checked by an automated parity harness
+  (70 checks against the original build).
 
-“Image Viewer” is what GNOME’s app menu calls Loupe (`org.gnome.Loupe.desktop`, `/usr/bin/loupe`) —
-the preinstalled viewer on this machine.
+## Benchmarks
 
-Measured on CachyOS, 13th Gen Intel i9-13900F, Xvfb 1440×900 with software rendering
-(`GSK_RENDERER=cairo`, `WEBKIT_DISABLE_COMPOSITING_MODE=1`), median of 4 runs;
-“photo visible” = first captured frame (60 fps) showing the picture. On a GPU desktop both
-apps start faster; the table compares like-for-like conditions.
-Reproduce with [`scripts/bench-vs-loupe.sh`](scripts/bench-vs-loupe.sh) (Xvfb + Loupe installed).
+Measured headless with software GL (llvmpipe) for all three apps, median of 3 —
+see [docs/bench-resources.md](docs/bench-resources.md) for method and the full
+table.
 
-Why the gap, and what was done about it: Loupe is a single GTK4 process with a native
-decode/texture path; Lumen carries WebKit's process model (WebProcess ≈ 150 MB, NetworkProcess
-≈ 33 MB, shell ≈ 98 MB) plus a JS boot. Measured improvements: the preview decodes at ~2× the
-viewport (a full-resolution bitmap is swapped in when you zoom past it or export), the extra full
-decode was removed, and the splash no longer fades when opening from the file manager — that took
-time-to-photo from 490→447 ms (1400×934) and 508→469 ms (12 MP), and memory from 310→269 MB
-on 12 MP.
-
-
-Native architecture spikes live in [`spikes/`](spikes/README.md): a GTK3 viewer measures
-**24 MB / 54 ms** for a 1.3 MP photo (12 MP: 95 MB / 104 ms), i.e. Loupe-class footprint without
-the WebView — see [`docs/architecture.md`](docs/architecture.md) for the trade-offs of a migration.
-
-**Honest summary:** Loupe crops, rotates and flips too — and it is faster to get the photo on
-screen and uses less RAM. Lumen is a **4 MB single binary** that opens its window twice as fast,
-and adds what Loupe does not do: freehand/shape/text **annotations**, **resize**, **compress to a
-target KB**, an **80-step undo** and **EXIF/GPS stripping** on save.
+| | **Lumen (egui)** | Lumen (Tauri/WebKit) | Loupe 51.2 |
+|---|---|---|---|
+| Time to photo · 1.3 MP | **87 ms** | 444 ms | 204 ms |
+| Time to photo · 12 MP | **85 ms** | 464 ms | 331 ms |
+| Window shown | 85–87 ms | 85–94 ms | 138–141 ms |
+| Switch to next image | **3 ms** | browser decode | — |
+| PSS (process tree) | **135 MB** | 338 MB | 229 MB |
+| Anonymous memory | 78 MB | 166 MB | **67 MB** |
+| Peak RSS | **400 MB** | 697 MB | 644 MB |
+| Threads / FDs | **68 / 41** | 186 / 197 | 147 / 122 |
+| Idle CPU | **0.0 %** | 2.2 % | 5.2 % |
+| Binary | 9.6 MB | 4 MB + system WebKit (141 MB) | 8 MB + system GTK (54 MB) |
 
 ## Install
 
-**Download the binary** (Linux x86_64):
+Dependencies (Arch names): `gtk3` (native file chooser), `libjpeg-turbo`
+(fast preview decoding), and a system CJK font such as `noto-fonts-cjk`.
 
 ```bash
-curl -L -o lumen https://github.com/limOvO/lumen/releases/latest/download/lumen
-chmod +x lumen && ./lumen photo.jpg
+git clone https://github.com/limOvO/lumen
+cd lumen
+
+scripts/build-egui.sh                 # → dist/lumen-egui (size-optimised)
+scripts/install-egui.sh               # → ~/.local/bin/lumen-egui + desktop entry
+scripts/install-egui.sh --desktop-shortcut
+scripts/install-egui.sh --set-default # make it the default image viewer
 ```
 
-Requires `gtk3` and `webkit2gtk-4.1` (Arch: `gtk3`, `webkit2gtk-4.1`).
-
-**Build from source** (Rust 1.80+):
-
-```bash
-./scripts/build.sh                       # → dist/lumen
-./scripts/install.sh                     # install to ~/.local (no sudo)
-./scripts/install.sh --desktop-shortcut  # + desktop shortcut
-./scripts/install.sh --set-default       # make it the default image viewer
-./scripts/uninstall.sh                   # remove (only touches ~/.local)
-```
-
-Installs `~/.local/bin/lumen`, an app-menu entry and the icon set. More in
-[packaging/INSTALL.md](packaging/INSTALL.md).
+Prebuilt binaries are attached to the GitHub releases.
 
 ## Use
 
 ```bash
-lumen                 # empty window: Ctrl+O or drag & drop
-lumen photo.jpg       # open one image
-lumen ~/Pictures      # open a folder
+lumen-egui photo.jpg          # open a file
+lumen-egui ~/Pictures         # or a folder (starts with the first image)
 ```
 
-Lumen has two modes. It opens in **Preview** (clean picture, zoom, ← → between images,
-`I` for the info card). Press **Edit** in the top-right corner — or `E` — to get the tool
-rail, panels and annotation style bar; `Esc` goes back to Preview.
+| Keys | Action |
+|---|---|
+| ← / → | previous / next image |
+| `+` / `-` / `0` | zoom in / out / fit (fit is the minimum) |
+| wheel · drag | zoom at cursor · pan (only when zoomed) |
+| `I` | info card |
+| `E` | viewer ⇄ editor |
+| `V B L R O A T C` | move · brush · line · rectangle · ellipse · arrow · text · crop |
+| `Shift` while dragging | square / circle / 45° lines |
+| `Ctrl+O` / `Ctrl+S` / `Ctrl+Shift+S` | open · save · save as (native chooser) |
+| `Ctrl+Z` / `Ctrl+Shift+Z` / `Delete` | undo (80 steps) · redo · delete selection |
+| `F` · `?` · `Esc` | fullscreen · shortcuts · cancel/back |
 
-| Key | Action | Key | Action |
-|---|---|---|---|
-| `Ctrl+O` / `Ctrl+S` / `Ctrl+Shift+S` | open / save / save as | `Ctrl+Z` / `Ctrl+Shift+Z` | undo / redo |
-| `←` `→` | previous / next image | `Home` `End` | first / last image |
-| `+` `-` / `0` | zoom in / out / fit | wheel, `Ctrl+wheel` | zoom at cursor |
-| `V` `B` `R` `O` `A` `L` `T` `C` | move / brush / rectangle / ellipse / arrow / line / text / crop | `Delete` | delete selected annotation |
-| `Space` (hold) or middle-drag | pan canvas | `Esc` | deselect / back to Preview |
-| `I` | info card | `F` / `?` | fullscreen / shortcut list |
+Languages follow the system locale (`zh-Hant`, `zh-Hans`, `en`); override with
+`LUMEN_LANG=en`.
 
-**Formats:** JPEG, PNG, WebP, GIF (first frame), BMP, TIFF, AVIF, SVG, ICO.
-Output: JPEG (white background), PNG, WebP.
-
-**Language:** follows the OS — Traditional Chinese, Simplified Chinese, English for
-everything else. Force it with `LUMEN_LANG=zh-Hans` (or `zh-Hant`, `en`).
-
-## Rust + wgpu + egui build (parity-complete)
-
-Open / Save-as use the system **GTK file chooser**, created in-process and pumped
-from the frame loop (no helper process, so the desktop does not show its busy
-cursor while it opens). If GTK/display cannot start, the app falls back to its
-built-in browser; `LUMEN_NO_NATIVE_DIALOG=1` (or `LUMEN_INTERNAL_BROWSER=1`)
-forces the built-in UI.
-
-A second build of Lumen is being ported to **Rust + wgpu + egui** (no WebView) to reach
-Loupe-class footprint with GPU rendering:
+## Build from source
 
 ```bash
-scripts/build-egui.sh            # → dist/lumen-egui (~9.6 MB size-optimised; CJK from the system font)
-scripts/install-egui.sh          # install to ~/.local (add --desktop-shortcut / --set-default)
-WGPU_BACKEND=gl ./dist/lumen-egui photo.jpg    # GL fallback for headless/software GL
+cargo build --release --manifest-path egui-app/Cargo.toml   # ~1 min
+cargo test  --release --manifest-path egui-app/Cargo.toml   # 131 tests
+
+scripts/parity/verify.py        # 69 parity checks vs the original build
+scripts/bench-egui.sh 3         # time-to-photo, window time, PSS
+scripts/bench-resources.sh 3    # memory / CPU / threads / FDs
 ```
 
-Parity-complete: full viewer + editor chrome with the web build's motion timings (rail/
-inspector slide, dock rise, peek card, image switch, phase glide), annotation toolset
-(brush/line/rect/ellipse/arrow/text, dashed, weight-600 text), crop with ratio presets,
-export with JPEG/lossy-WebP target-KB compression, save/save-as, in-app folder browser with
-thumbnails, single-instance forwarding, 80-step undo, three languages.
+The release profile is size-first (`opt-level="z"`, fat LTO, `codegen-units=1`,
+stripped): 15.2 MB → 9.6 MB with no measurable speed regression. Preview decoding
+uses libjpeg-turbo's scaled IDCT; neighbour previews are prefetched so switching
+images is a texture upload.
 
-Verified by `python3 scripts/parity/verify.py`: **69 automated checks** (geometry, palette
-delta 0 against a live WebView capture, chrome regions, all tools, undo/redo, compare, crop,
-zoom/fit, animations, idle CPU, languages, single-instance, save/save-as, benchmark) plus
-**121 unit tests**. Matrix: [docs/parity.md](docs/parity.md); benchmarks:
-[docs/architecture.md](docs/architecture.md) · [resource comparison](docs/bench-resources.md).
+## Repository layout
+
+```
+egui-app/          Rust + wgpu + egui rewrite (the active build)
+  src/             app, canvas interaction, annotations, crop, export, save,
+                   native dialogs, i18n, fonts, single instance
+src/               original Tauri/WebKit frontend (reference build)
+src-tauri/         original Tauri shell
+scripts/           build/install, benchmarks, parity harness, i18n + font generators
+docs/              parity matrix, benchmarks, architecture notes
+packaging/         desktop entry + icons
+```
 
 ## License
 
-MIT.
+MIT — see [LICENSE](LICENSE).

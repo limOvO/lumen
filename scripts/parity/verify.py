@@ -1158,6 +1158,23 @@ def main():
         stop(p)
         cleanup()
 
+    # ---- folder argument opens its first image ----
+    cleanup()
+    folder = Path("/tmp/parity-folder-arg")
+    folder.mkdir(exist_ok=True)
+    (folder / "b.jpg").write_bytes(fx.read_bytes())
+    (folder / "a.jpg").write_bytes(fx.read_bytes())
+    p = start(app, folder)
+    try:
+        if not wait_window("Lumen", 25.0):
+            raise RuntimeError("folder-arg window did not appear")
+        time.sleep(3.0)
+        title = run(["xdotool", "getwindowname", wait_window()]).stdout.strip()
+        check("G24", "a folder argument opens its first image", "a.jpg" in title, title)
+    finally:
+        stop(p)
+        cleanup()
+
     # ---- system file picker (GTK3, in-process, main thread) ----
     cleanup()
     native_env = dict(ENV)
